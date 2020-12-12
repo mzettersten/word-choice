@@ -12,7 +12,7 @@ While many implicit decisions are the result of a trade-off, trade-offs in word 
 The folder data_analysis contains the following documents
 
 - **raw_data**: raw data from Experiments 1-4
-- **processed_data**: processed data from Experiments 1-4
+- **processed_data**: processed data from Experiments 1-4 and the codebook for the resulting data
 - **analysis_scripts**: R scripts for processing the raw data and analyzing the processed data from Experiments 1-4
 - **plots**: figures generated in the analysis pipeline
 
