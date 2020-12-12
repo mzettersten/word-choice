@@ -1,0 +1,514 @@
+---
+title: "WordChoice preprocessing"
+output:
+  html_document:
+    toc: yes
+    toc_depth: 4
+    toc_float: yes
+---
+
+```{r setup, include=FALSE}
+#knitr::opts_chunk$set(echo = TRUE)
+#knitr::opts_chunk$set(cache=TRUE)
+library(here)
+here::here()
+library(plyr)
+library(tidyverse)
+library(lme4)
+library(psych)
+library(sciplot)
+source(here::here("analysis_scripts","helper","summarizeData.R"))
+```
+
+
+This document recreates the preprocessing steps for the word choice data files.
+
+First, we'll put together all of the data.
+
+### Load and combine data
+
+### Survey Data
+
+```{r}
+survey <- read.csv(here::here("raw_data","Clocks_Survey_February_18_2019_processed_wc2.csv"))
+survey$subjCode <- as.character(survey$subjCode)
+survey$subjCode[survey$subjCode=='109'] <- "p109"
+#retain only key demographic columns
+survey <- survey %>%
+  select(subjCode,Age, Gender, NativeLang, SecondLangYN, SecondLang)
+```
+
+### Experiment Data
+
+Load experiment data and combine
+
+```{r}
+#Load data experiment 1
+d1 <- read.table(here::here("raw_data","Words_v12_05092017.txt"), header=TRUE,sep="\t")
+#add experiment version id
+d1$version <- "exp1"
+#remove angle_1 to angle_8 columns
+#These columns are not meaningful bc they mean potentially different things for different participants
+#and are potentially confusing
+d1 <- subset(d1,select=-c(angle_1,angle_2,angle_3,angle_4,angle_5,angle_6,angle_7,angle_8))
+#add missing columns, convert subjCode to character, convert room to character
+d1 <- d1 %>% 
+  mutate(subjCode = as.character(subjCode),room = as.character(room), labelAssign = NA,windowSize = NA, block.1 = NA, numWheelTurnsUp = NA, numWheelTurnsDown = NA)
+#fix mislabeled participant 109
+d1$subjCode[d1$subjCode=='109'] <- 'p109'
+
+#Load data experiment 2
+d2 <- read.table(here::here("raw_data","Words_v2.2_102417.txt"), header=TRUE,sep="\t")
+#add experiment version id
+d2$version <- "exp2"
+#remove blit to pim columns
+#These columns are not meaningful bc they mean potentially different things for different participants
+#and are potentially confusing
+d2 <- subset(d2,select=-c(blit,clate,gled,gorm,grah, hoon, noobda,pim))
+#add missing columns, convert subjCode to character, convert room to character
+d2 <- d2 %>% 
+  mutate(subjCode = as.character(subjCode),room = as.character(room),windowSize = NA, block.1 = NA, numWheelTurnsUp = NA, numWheelTurnsDown = NA)
+
+#Load data experiment 3
+d3 <- read.table(here::here("raw_data","Words_v2.3_022118.txt"), header=TRUE,sep="\t")
+#add experiment version id
+d3$version <- "exp3"
+#remove blit to pim columns
+#These columns are not meaningful bc they mean potentially different things for different participants
+#and are potentially confusing
+d3 <- subset(d3,select=-c(blit,clate,gled,gorm,grah, hoon, noobda,pim))
+#add missing columns, convert subjCode to character, convert room to character
+d3 <- d3 %>% 
+  mutate(subjCode = as.character(subjCode),room = as.character(room),windowSize = NA, block.1 = NA, numWheelTurnsUp = NA, numWheelTurnsDown = NA)
+
+#Load data experiment 4
+d4 <- read.table(here::here("raw_data","Words_v2.4_01182020.txt"), header=TRUE,sep="\t",fill=T)
+#add experiment version id
+d4$version <- "exp4"
+#remove blit to pim columns
+#These columns are not meaningful bc they mean potentially different things for different participants
+#and are potentially confusing
+d4 <- subset(d4,select=-c(blit,clate,gled,gorm,grah, hoon, noobda,pim))
+#Convert subjCode to character, convert room to character
+d4 <- d4 %>% 
+  mutate(subjCode = as.character(subjCode),room = as.character(room))
+#rename doubled subject id
+d4$subjCode <- ifelse(d4$subjCode=="256"&d4$room=="SEIDENBERG_PC4","256participant2", as.character(d4$subjCode))
+
+#combine all data
+d <- bind_rows(d1,d2,d3,d4)
+
+```
+
+
+### Exclude subjects
+
+Three subjects excluded from version 3
+
+```{r}
+#exclude subjects
+excludeList <- c("323","328","352","357")
+d <- subset(d, !(subjCode %in% excludeList))
+```
+
+### Add trial counters 
+
+Track trial numbers overall and by block accurately (these are useful variables that were not originally in the manuscript).
+
+```{r}
+d$overallTrialNum <- 0
+d$nameBlockNum <- 0
+d$pairLearnBlockNum <- 0
+
+for (curSubj in unique(d$subjCode)) {
+  #print(curSubj)
+  nameBlockNum <- 1
+  pairLearnBlockNum <- 1
+  nameTrialNum <- 0
+  pairLearnTrialNum=0
+  
+  if (d$version[d$subjCode==curSubj][1]=="exp4") {
+    name_threshold <-  120
+  } else {
+    name_threshold <-  20
+  }
+  
+  for (trialNum in 1: length(d$subjCode[d$subjCode==curSubj])) {
+    #print(trialNum)
+    d$overallTrialNum[d$subjCode==curSubj][trialNum] <-  trialNum
+    if (d$trialType[d$subjCode==curSubj][trialNum]=="name"&d$overallTrialNum[d$subjCode==curSubj][trialNum]>name_threshold) {
+      nameTrialNum <- nameTrialNum+1
+    }
+    if (d$trialType[d$subjCode==curSubj][trialNum]=="pairLearn") {
+      pairLearnTrialNum <- pairLearnTrialNum+1
+    }
+    d$nameTrialNum[d$subjCode==curSubj][trialNum] <-  ifelse(d$trialType[d$subjCode==curSubj][trialNum]=="name"&d$overallTrialNum[d$subjCode==curSubj][trialNum]>name_threshold,nameTrialNum,NA)
+    d$pairLearnTrialNum[d$subjCode==curSubj][trialNum] <-  ifelse(d$trialType[d$subjCode==curSubj][trialNum]=="pairLearn",pairLearnTrialNum,NA)
+    d$nameBlockNum[d$subjCode==curSubj][trialNum] <-  ifelse(d$trialType[d$subjCode==curSubj][trialNum]=="name"&d$overallTrialNum[d$subjCode==curSubj][trialNum]>name_threshold,nameBlockNum,NA)
+    d$pairLearnBlockNum[d$subjCode==curSubj][trialNum] <-  ifelse(d$trialType[d$subjCode==curSubj][trialNum]=="pairLearn",pairLearnBlockNum,NA)
+    if (d$trialType[d$subjCode==curSubj][trialNum]=="name"&nameTrialNum%%8==0&d$overallTrialNum[d$subjCode==curSubj][trialNum]>name_threshold) {
+      nameBlockNum <- nameBlockNum+1
+    }
+    if (pairLearnTrialNum%%20==0&d$trialType[d$subjCode==curSubj][trialNum]=="pairLearn") {
+      pairLearnBlockNum <- pairLearnBlockNum+1
+    }
+  }
+}
+```
+
+### Add columns tracking subject-specific dictionary
+
+```{r}
+for (curSubj in unique(d$subjCode)) {
+  #words
+  d$word1[d$subjCode==curSubj] <-  as.character(d$target[d$block=="init"&d$subjCode==curSubj&d$trial==1])[1]
+  d$word2[d$subjCode==curSubj] <-  as.character(d$target[d$block=="init"&d$subjCode==curSubj&d$trial==2])[1]
+  d$word3[d$subjCode==curSubj] <-  as.character(d$target[d$block=="init"&d$subjCode==curSubj&d$trial==3])[1]
+  d$word4[d$subjCode==curSubj] <-  as.character(d$target[d$block=="init"&d$subjCode==curSubj&d$trial==4])[1]
+  d$word5[d$subjCode==curSubj] <-  as.character(d$target[d$block=="init"&d$subjCode==curSubj&d$trial==5])[1]
+  d$word6[d$subjCode==curSubj] <-  as.character(d$target[d$block=="init"&d$subjCode==curSubj&d$trial==6])[1]
+  d$word7[d$subjCode==curSubj] <-  as.character(d$target[d$block=="init"&d$subjCode==curSubj&d$trial==7])[1]
+  d$word8[d$subjCode==curSubj] <-  as.character(d$target[d$block=="init"&d$subjCode==curSubj&d$trial==8])[1]
+  
+  #frequency of words
+  d$freq1[d$subjCode==curSubj] <-  as.character(d$freq[d$block=="init"&d$subjCode==curSubj&d$trial==1])[1]
+  d$freq2[d$subjCode==curSubj] <-  as.character(d$freq[d$block=="init"&d$subjCode==curSubj&d$trial==2])[1]
+  d$freq3[d$subjCode==curSubj] <-  as.character(d$freq[d$block=="init"&d$subjCode==curSubj&d$trial==3])[1]
+  d$freq4[d$subjCode==curSubj] <-  as.character(d$freq[d$block=="init"&d$subjCode==curSubj&d$trial==4])[1]
+  d$freq5[d$subjCode==curSubj] <-  as.character(d$freq[d$block=="init"&d$subjCode==curSubj&d$trial==5])[1]
+  d$freq6[d$subjCode==curSubj] <-  as.character(d$freq[d$block=="init"&d$subjCode==curSubj&d$trial==6])[1]
+  d$freq7[d$subjCode==curSubj] <-  as.character(d$freq[d$block=="init"&d$subjCode==curSubj&d$trial==7])[1]
+  d$freq8[d$subjCode==curSubj] <-  as.character(d$freq[d$block=="init"&d$subjCode==curSubj&d$trial==8])[1]
+  
+  #corresponding angles
+  d$angle1[d$subjCode==curSubj] <-  d$angle[d$block=="init"&d$subjCode==curSubj&d$trial==1][1]
+  d$angle2[d$subjCode==curSubj] <-  d$angle[d$block=="init"&d$subjCode==curSubj&d$trial==2][1]
+  d$angle3[d$subjCode==curSubj] <-  d$angle[d$block=="init"&d$subjCode==curSubj&d$trial==3][1]
+  d$angle4[d$subjCode==curSubj] <-  d$angle[d$block=="init"&d$subjCode==curSubj&d$trial==4][1]
+  d$angle5[d$subjCode==curSubj] <-  d$angle[d$block=="init"&d$subjCode==curSubj&d$trial==5][1]
+  d$angle6[d$subjCode==curSubj] <-  d$angle[d$block=="init"&d$subjCode==curSubj&d$trial==6][1]
+  d$angle7[d$subjCode==curSubj] <-  d$angle[d$block=="init"&d$subjCode==curSubj&d$trial==7][1]
+  d$angle8[d$subjCode==curSubj] <-  d$angle[d$block=="init"&d$subjCode==curSubj&d$trial==8][1]
+}
+```
+
+
+### Trim whitespace in label
+
+Trim leading and trailing whitespace in typed label responses.
+
+In order to avoid oversights and maintain consistency with past code, this *overwrites* the column "label", while also creating a new label_raw column to make the original typed response recoverable.
+
+```{r}
+#save label responses in a new column
+d$label_raw <- d$label
+#trim trailing and leading whitespace
+d$label <- trimws(as.character(d$label))
+```
+
+### Add more substantive variables for assessing final test performance
+
+```{r}
+#store original isRight column from the experiment
+d <- d %>%
+  mutate(isRight_old=isRight)
+#evaluate correct responses for test blocks (training pair learning and test; final timed and untimed test)
+#also correcting the isRight column for the final name check block, after cleaning whitespace (which was not done in the experiment)
+d$isRight <- ifelse(d$block=="test_x",ifelse(d$label==as.character(d$nearbyLabel1),1,0),
+                 ifelse(d$block=="init",ifelse(d$label==as.character(d$target),1,0),
+                        ifelse(d$block=="name_check",ifelse(d$label==as.character(d$target),1,0),d$isRight)))
+
+# frequency info
+d$freq <- ifelse(d$block=="test_x",as.character(d$nearbyFreq1),as.character(d$freq))
+```
+
+### Add variables for assessing test performance, defining neighboring angles systematically
+
+```{r}
+# Assign 'left' angle to leftmost clockwise position (smallest angle; except, 330 > 15) OR to the exact angle
+d$leftAngle <- ifelse(is.na(d$nearbyAngle2),d$nearbyAngle1,
+                      ifelse((d$nearbyAngle1==330 &d$nearbyAngle2==15), 330,
+                             ifelse((d$nearbyAngle1==15 &d$nearbyAngle2==330), 330,
+                                    ifelse(d$nearbyAngle1<d$nearbyAngle2,d$nearbyAngle1,d$nearbyAngle2))))
+d$rightAngle <- ifelse(is.na(d$nearbyAngle2),NA,
+                       ifelse((d$nearbyAngle1==330 &d$nearbyAngle2==15), 15,
+                              ifelse((d$nearbyAngle1==15 &d$nearbyAngle2==330), 15,
+                                     ifelse(d$nearbyAngle1<d$nearbyAngle2,d$nearbyAngle2,d$nearbyAngle1))))
+
+# give word label for the defined "left" and "right" angle.
+d$leftLabel <- ifelse(is.na(d$nearbyAngle2),as.character(d$nearbyLabel1),
+                      ifelse((d$nearbyAngle1==330 &d$nearbyAngle2==15), as.character(d$nearbyLabel1),
+                             ifelse((d$nearbyAngle1==15 &d$nearbyAngle2==330), as.character(d$nearbyLabel2),
+                                    ifelse(d$nearbyAngle1<d$nearbyAngle2,as.character(d$nearbyLabel1),as.character(d$nearbyLabel2)))))
+d$rightLabel <- ifelse(is.na(d$nearbyAngle2),NA,
+                       ifelse((d$nearbyAngle1==330 &d$nearbyAngle2==15), as.character(d$nearbyLabel2),
+                              ifelse((d$nearbyAngle1==15 &d$nearbyAngle2==330), as.character(d$nearbyLabel1),
+                                ifelse(d$nearbyAngle1<d$nearbyAngle2,as.character(d$nearbyLabel2),
+                                       as.character(d$nearbyLabel1)))))
+
+#Given angle values, what are the labels assigned these angles?
+#Identify frequency of left and right word labels
+d$leftFreq <- ifelse(is.na(d$nearbyAngle2),as.character(d$nearbyFreq1),
+                     ifelse((d$nearbyAngle1==330 &d$nearbyAngle2==15), as.character(d$nearbyFreq1),
+                            ifelse((d$nearbyAngle1==15 &d$nearbyAngle2==330), as.character(d$nearbyFreq2),
+                                   ifelse(d$nearbyAngle1<d$nearbyAngle2,as.character(d$nearbyFreq1),
+                                          as.character(d$nearbyFreq2)))))
+d$rightFreq <- ifelse(is.na(d$nearbyAngle2),NA,
+                      ifelse((d$nearbyAngle1==330 &d$nearbyAngle2==15), as.character(d$nearbyFreq2),
+                             ifelse((d$nearbyAngle1==15 &d$nearbyAngle2==330), as.character(d$nearbyFreq1),
+                                    ifelse(d$nearbyAngle1<d$nearbyAngle2,as.character(d$nearbyFreq2),
+                                           as.character(d$nearbyFreq1)))))
+
+# Each trial target is one of any potential combination of LF and HF neighbors.
+#add trial condition labels: HF,LF,HF_LF, LF_HF, LF_LF, HF_HF
+d$conditionType <- ifelse(is.na(d$nearbyAngle2)&d$leftFreq=="hf","HF",
+                          ifelse(is.na(d$nearbyAngle2)&d$leftFreq=="lf","LF",
+                                 ifelse(d$leftFreq=="hf"&d$rightFreq=="lf", "HF_LF",
+                                        ifelse(d$leftFreq=="lf"&d$rightFreq=="hf", "LF_HF",
+                                               ifelse(d$leftFreq=="lf"&d$rightFreq=="lf", "LF_LF","HF_HF")))))
+
+# There are two overall groups that the conditions could fall into.
+# group trial condition labels: different, same
+d$conditionTypeComb <- ifelse((d$leftFreq=="hf"&d$rightFreq=="lf")|(d$leftFreq=="lf"&d$rightFreq=="hf"), "different","same")
+
+# the hf word can be the left or the right angle.
+# identify, out of left and right, what the hf word label is
+d$highFreqLabel <- ifelse(d$conditionType=="HF",d$leftLabel,
+                          ifelse(d$conditionType=="LF",NA,
+                                 ifelse(d$leftFreq=="hf"&d$rightFreq=="lf", d$leftLabel,
+                                        ifelse(d$leftFreq=="lf"&d$rightFreq=="hf", d$rightLabel,
+                                               ifelse(d$leftFreq=="lf"&d$rightFreq=="lf", NA,d$leftLabel)))))
+
+# Evaluates distance of trial angle to left angle 
+d$angleDiff <- ifelse(d$leftAngle==330 & d$angle<=15,abs(d$angle+360-d$leftAngle),abs(d$angle - d$leftAngle))
+
+# participants could give a neighboring or wrong label. What did they provide?
+#add variable to track if choice was one of two surrounding angles
+d$rightAngleChoice <- ifelse(d$label==d$rightLabel,1,
+                             ifelse(d$label==d$leftLabel,0,NA))
+
+#Out of the trials where 1 of the 2 labels were given, did they choose an hf label?
+#add variable to track if choice was high frequency angle
+d$highFreqChoice <- ifelse(d$label==d$highFreqLabel,1,
+                          ifelse(is.na(d$rightAngleChoice),NA,0))
+
+#track difference from high frequency label
+d$angleDiffHighFreq <- ifelse(is.na(d$highFreqLabel),NA,
+                             ifelse(d$highFreqLabel==d$leftLabel,d$angleDiff,45-d$angleDiff))
+
+#add general variable to track whether label is a word in the dictionary
+d$valid_label <- ifelse(d$label %in% c(unique(d$word1),unique(d$word2),unique(d$word3),unique(d$word4),unique(d$word5),unique(d$word6),unique(d$word7),unique(d$word8)),1,0)
+```
+
+### Add key parameters for main HF/LF analysis
+
+```{r}
+#HF trial
+d$hfTrial <- ifelse((d$angleDiff >= 22.5 & d$conditionType=="LF_HF") | (d$angleDiff <= 22.5 & d$conditionType=="HF_LF"),.5,
+                 ifelse((d$angleDiff >= 22.5 & d$conditionType=="HF_LF") | (d$angleDiff <= 22.5 & d$conditionType=="LF_HF"),-.5,NA))
+#determine type of choice made
+d$listChoice <- ifelse(is.na(d$hfTrial),NA,
+                      ifelse(as.character(d$label) == as.character(d$leftLabel)|as.character(d$label)== as.character(d$rightLabel),1,0))
+
+#In all test trials, did they choose an hf label?
+#add variable to track if choice was high frequency angle
+d$highFreqChoiceGeneral <- ifelse(as.character(d$label)==as.character(d$highFreqLabel),1,0)
+d$lowFreqLabel <- ifelse(is.na(d$hfTrial),NA,
+                         ifelse(as.character(d$highFreqLabel)==as.character(d$rightLabel),as.character(d$leftLabel),
+                               as.character(d$rightLabel)))
+
+d$targetLabel <- ifelse(is.na(d$hfTrial),NA,
+                       ifelse(d$hfTrial==-0.5,as.character(d$lowFreqLabel), as.character(d$highFreqLabel)))
+d$nearestLabel <- ifelse(is.na(d$leftLabel),NA,                ifelse(d$angleDiff<22.5,as.character(d$leftLabel),
+                         as.character(d$rightLabel)))
+
+#add information about string length
+d <- d %>%
+  mutate(
+    targetLabel_length=str_length(targetLabel),
+    nearestLabel_length=str_length(nearestLabel))
+
+
+#determine if match choice.
+d$matchChoice=ifelse(is.na(d$hfTrial),NA,
+                     ifelse(d$listChoice==0,0,
+                            ifelse(d$hfTrial==0.5&d$highFreqChoiceGeneral==1,1,
+                                   ifelse(d$hfTrial==-0.5&d$highFreqChoiceGeneral==0,1,0))))
+
+d$angleDiffFromMatch <-  ifelse(d$angleDiff<22.5,d$angleDiff,45-d$angleDiff)
+
+#finer choice classification
+d$choiceKind <- ifelse(is.na(d$hfTrial),NA,
+                    ifelse(d$listChoice==0,"other",
+                           ifelse(d$hfTrial==0.5&d$matchChoice==1,"high frequency",
+                                  ifelse(d$hfTrial==-0.5&d$matchChoice==0,"high frequency","low frequency"))))
+```
+
+### Add additional centered variables
+
+```{r}
+#center test block based on low vs. high ambiguity
+d$blockC <- ifelse((d$block=="test_a"|d$block=="clear"|d$block=="clear2"),-0.5,
+                ifelse(d$block=="test_b"|d$block=="ambig",0.5,NA))
+
+#angle difference centered by subject
+d <- d %>%
+  group_by(subjCode) %>%
+  mutate(angleDiffFromMatchC=angleDiffFromMatch-mean(angleDiffFromMatch,na.rm=T))
+
+```
+
+### Add information about final accuracy for each label on choice trials
+
+```{r}
+#create dictionary of accuracy on final trials for each subject
+finalAccuracyDict <-  subset(d, trialType=="finalName",select=c(version,subjCode,target,isRight))
+
+#integrate final accuracy with choice trials
+d$finalAccuracyNearbyLabel1 <- NA
+d$finalAccuracyNearbyLabel2 <- NA
+for (i in 1:length(d$subjCode)) {
+  if (d$trialType[i]=="test") {
+    #print(i)
+    d$finalAccuracyNearbyLabel1[i] <-  finalAccuracyDict$isRight[finalAccuracyDict$version==as.character(d$version[i])&finalAccuracyDict$subjCode==as.character(d$subjCode[i])&finalAccuracyDict$target==as.character(d$nearbyLabel1[i])]
+    d$finalAccuracyNearbyLabel2[i] = ifelse(is.na(d$nearbyLabel2[i]),NA,finalAccuracyDict$isRight[finalAccuracyDict$version==as.character(d$version[i])&finalAccuracyDict$subjCode==as.character(d$subjCode[i])&finalAccuracyDict$target==as.character(d$nearbyLabel2[i])])
+  }
+}
+
+d <- d %>%
+  mutate(finalAccuracyNearbyLabels=(finalAccuracyNearbyLabel1+finalAccuracyNearbyLabel2)/2)
+```
+
+### Combine experiment data with survey data
+
+```{r, warning=F}
+#merge with survey data
+d <- merge(d,survey)
+
+#fix Age variable where needed
+d <- d %>%
+  mutate(Age = case_when(
+    subjCode=="p111" ~ 19,
+    subjCode=="445" ~ 18,
+    TRUE ~ as.numeric(as.character(Age))
+  ))
+```
+
+### Select final columns
+
+```{r}
+d <- d %>%
+  select(
+    version,
+    expVersion,
+    subjCode,
+    Age,
+    Gender,
+    NativeLang,
+    SecondLangYN,
+    SecondLang,
+    seed,
+    angleAssign,
+    labelAssign,
+    room,
+    windowSize,
+    date_time,
+    dateStr,
+    block,
+    blockC,
+    trialType,
+    overallTrialNum,
+    trial,
+    trialNumber,
+    nameBlockNum,
+    pairLearnBlockNum,
+    nameTrialNum,
+    pairLearnTrialNum,
+    word1,
+    word2,
+    word3,
+    word4,
+    word5,
+    word6,
+    word7,
+    word8,
+    freq1,
+    freq2,
+    freq3,
+    freq4,
+    freq5,
+    freq6,
+    freq7,
+    freq8,
+    angle1,
+    angle2,
+    angle3,
+    angle4,
+    angle5,
+    angle6,
+    angle7,
+    angle8,
+    freq,
+    conditionType,
+    conditionTypeComb,
+    hfTrial,
+    target,
+    angle,
+    nearestLabel,
+    nearestLabel_length,
+    targetLabel,
+    targetLabel_length,
+    highFreqLabel,
+    lowFreqLabel,
+    left,
+    right,
+    nearbyLabel1,
+    nearbyAngle1,
+    nearbyFreq1,
+    nearbyLabel2,
+    nearbyAngle2,
+    nearbyFreq2,
+    leftAngle,
+    rightAngle,
+    leftLabel,
+    rightLabel,
+    leftFreq,
+    rightFreq,
+    angleDiff,
+    angleDiffFromMatch,
+    angleDiffFromMatchC,
+    angleDiffHighFreq,
+    updateScore,
+    feedback,
+    response,
+    label,
+    label_raw,
+    isRight_old,
+    isRight,
+    rt,
+    score,
+    numWheelTurnsUp,
+    numWheelTurnsDown,
+    valid_label,
+    listChoice,
+    rightAngleChoice,
+    highFreqChoice,
+    highFreqChoiceGeneral,
+    matchChoice,
+    choiceKind,
+    finalAccuracyNearbyLabel1,
+    finalAccuracyNearbyLabel2,
+    finalAccuracyNearbyLabels
+  )
+```
+
+
+### Save the final data version
+```{r}
+#write to processed data folder
+write.csv(d,here::here("processed_data","Words_final_preprocessed.csv"),row.names=F)
+write.csv(subset(d,version=="exp1"), here::here("processed_data","Words_v12_final_preprocessed.csv"),row.names=F)
+write.csv(subset(d,version=="exp2"), here::here("processed_data","Words_v2_final_preprocessed.csv"),row.names=F)
+write.csv(subset(d,version=="exp3"), here::here("processed_data","Words_v3_final_preprocessed.csv"),row.names=F)
+write.csv(subset(d,version=="exp4"), here::here("processed_data","Words_v4_final_preprocessed.csv"),row.names=F)
+```

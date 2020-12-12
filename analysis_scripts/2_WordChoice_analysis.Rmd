@@ -1,0 +1,2417 @@
+---
+title: "WordChoice Analysis"
+output:
+  html_document:
+    code_folding: hide
+    toc: yes
+    toc_depth: 3
+    toc_float: yes
+---
+
+```{r setup, include=FALSE}
+library(here)
+here::here()
+library(plyr)
+library(tidyverse)
+library(lme4)
+library(psych)
+library(sciplot)
+library(cowplot)
+library(ggstance)
+library(car)
+library(knitr)
+library(AICcmodavg)
+source(here::here("analysis_scripts","helper","summarizeData.R"))
+
+opts_chunk$set(echo = T, message = F, warning = F, 
+               error = F, tidy = F, cache = F)
+
+# if PC... to prevent error :)
+if(!Sys.info()["sysname"]=="Windows"){
+theme_set(theme_cowplot())
+}else{
+    print("cowplot skipped for Windows")}
+```
+
+Analysis walkthrough for the paper "Good-enough production: Selecting easier words instead of accurate ones." (authors removed, 2020).
+
+See WordChoice_codebook for information about individual columns.
+
+First, load all data across Experiments 1-4.
+
+```{r}
+all_data <- read.csv(here::here("processed_data","Words_final_preprocessed.csv"))
+```
+
+# Experiment 1
+
+```{r}
+#load data
+d <- filter(all_data,version=="exp1")
+```
+
+## Demographics
+
+Overview over the demographics of participants in Experiment 1.
+
+```{r}
+#demographics and by-subject accuracy for each block
+subjDemographics <- d %>%
+  select(subjCode,Gender,Age,NativeLang,SecondLangYN) %>%
+  unique() %>%
+  summarize(
+    N=n(),
+    gender_f=sum(Gender=="Female"),
+    mean_age=round(mean(Age,na.rm=T),2),
+    sd_age=round(sd(Age,na.rm=T),2),
+    min_age=round(min(Age,na.rm=T),2),
+    max_age=round(max(Age,na.rm=T),2),
+    native_english=sum(NativeLang=="Yes"),
+    language_besides_english=sum(SecondLangYN=="Yes"),
+  )
+
+kable(subjDemographics)
+```
+
+## Pair Learning Accuracy
+
+### Overall Accuracy
+
+Overview of participants' performance during the Training Phase in which word participants learn each of the 8 compass directions.
+
+```{r, warning=FALSE, message=FALSE}
+#generate summary of learning block numbers
+subj_block_numbers <- d %>%
+  filter(trialType=="pairLearn"|trialType=="name") %>%
+  group_by(subjCode) %>%
+  summarize(
+    num_pairlearn_blocks=max(pairLearnBlockNum,na.rm=T),
+    num_name_blocks=max(nameBlockNum,na.rm=T),
+  )
+#combine with main data frame (for later covariate analysis)
+d <- d %>%
+  left_join(subj_block_numbers)
+
+#generate by-subject accuracy for each block (repeated training blocks are averaged together)
+subjAcc <- d %>%
+  group_by(subjCode,trialType) %>%
+  summarize(
+    accuracy=mean(isRight,na.rm=T),
+    numTrials=sum(!is.na(subjCode)),
+    rt = mean(rt,na.rm=T)) %>%
+  ungroup()
+
+#Overall Accuracy Pair Learning
+overallPairAcc <- subjAcc %>%
+  filter(trialType=="pairLearn") %>%
+  summarize(
+    acc=mean(accuracy,na.rm=T),
+    sd = sd(accuracy),
+    num_trials_avg = mean(numTrials),
+    num_trials_sd = sd(numTrials),
+    num_blocks_avg = mean(numTrials/20),
+    num_blocks_sd= sd(numTrials/20))
+kable(overallPairAcc)
+```
+
+### Accuracy by Block
+
+```{r}
+#pair learning over time
+#summarize by block
+subj_pair_accuracy_by_block <- d %>%
+  filter(trialType=="pairLearn"&!is.na(pairLearnBlockNum)) %>%
+  group_by(subjCode,pairLearnBlockNum) %>%
+  summarize(
+    accuracy=mean(isRight,na.rm=T),
+    numTrials=sum(!is.na(subjCode))) %>%
+  ungroup()
+
+overall_pair_accuracy_by_block <- subj_pair_accuracy_by_block %>%
+  summarySEwithin(measurevar="accuracy",withinvars=c("pairLearnBlockNum"),idvar="subjCode") %>%
+  mutate(lower_ci=accuracy-ci,
+         upper_ci=accuracy+ci) %>%
+  mutate(pairLearnBlockNum=as.numeric(as.character(pairLearnBlockNum)))
+
+#one plot each subject is a line
+pair_accuracy_by_block_exp1 <- ggplot(overall_pair_accuracy_by_block,aes(pairLearnBlockNum,y=accuracy,label=N))+
+  geom_point()+
+  geom_line()+
+  geom_errorbar(aes(ymin=lower_ci,ymax=upper_ci),width=0)+
+  geom_label(aes(y=0.8))+
+  scale_x_continuous(breaks=1:20)+
+  scale_y_continuous(breaks=seq(0.5,1,0.1))+
+  coord_cartesian(ylim = c(0.45, 1.05))+
+  geom_hline(yintercept=0.5,linetype="dashed")+
+  annotate("text",x=2,y=0.55,label="chance")+
+  xlab("Word Learning Block")+
+  ylab("Accuracy")+
+  ylim(0,1.05)
+```
+
+### Word Recall by Block
+
+```{r}
+subj_training_recall_by_block <- d %>%
+  filter(trialType=="name"&!is.na(nameBlockNum)) %>%
+  group_by(subjCode,nameBlockNum) %>%
+  summarize(
+    accuracy=mean(isRight,na.rm=T),
+    numTrials=sum(!is.na(subjCode))) %>%
+  ungroup()
+
+overall_training_recall_by_block <- subj_training_recall_by_block %>%
+  summarySEwithin(measurevar="accuracy",withinvars=c("nameBlockNum"),idvar="subjCode") %>%
+  mutate(lower_ci=accuracy-ci,
+         upper_ci=accuracy+ci) %>%
+  mutate(nameBlockNum=as.numeric(as.character(nameBlockNum)))
+
+#one plot each subject is a line
+training_recall_by_block_exp1 <- ggplot(overall_training_recall_by_block,aes(nameBlockNum,y=accuracy,label=N))+
+  geom_point()+
+  geom_line()+
+  geom_errorbar(aes(ymin=lower_ci,ymax=upper_ci),width=0)+
+  geom_label(aes(y=0.25))+
+  scale_x_continuous(breaks=1:20)+
+  xlab("Training - Word Recall Block")+
+  ylab("Accuracy")+
+  ylim(0,1.05)
+```
+
+## Final word retention {.tabset}
+
+### Timed Retention Test
+
+Participants' performance during the Timed Retention test at the conclusion of the experiment.
+
+#### Accuracy
+
+```{r, warning=FALSE, message=FALSE}
+#summarize subject accuracy by frequency
+subjAccFreq <- d %>%
+  group_by(subjCode,block,freq) %>%
+  summarize(
+    accuracy=mean(isRight,na.rm=T),
+    rt = mean(rt,na.rm=T)) %>%
+  ungroup()
+
+testXAcc <-  summarySEwithin(data=subset(subjAccFreq,block=="test_x"), measurevar="accuracy",withinvars=c("freq"),idvar="subjCode")
+testXAcc$lowerCI <-  testXAcc$accuracy - testXAcc$ci
+testXAcc$upperCI <- testXAcc$accuracy + testXAcc$ci
+testXAcc %>%
+  select(-sd,-ci,-accuracy_norm) %>%
+  kable()
+#t-test
+t.test(subset(subjAccFreq,block=="test_x")$accuracy[subset(subjAccFreq,block=="test_x")$freq=="hf"],
+       subset(subjAccFreq,block=="test_x")$accuracy[subset(subjAccFreq,block=="test_x")$freq=="lf"],paired=T)
+```
+
+#### Reaction Times
+
+``` {r}
+# reaction times
+testXRT <-  summarySEwithin(subset(subjAccFreq,block=="test_x"), measurevar="rt",withinvars=c("freq"),idvar="subjCode")
+testXRT$lowerCI <-  testXRT$rt - testXRT$ci
+testXRT$upperCI <-  testXRT$rt + testXRT$ci
+testXRT %>%
+  select(-sd,-ci,-rt_norm) %>%
+  kable()
+#t-test
+t.test(subset(subjAccFreq,block=="test_x")$rt[subset(subjAccFreq,block=="test_x")$freq=="hf"],
+       subset(subjAccFreq,block=="test_x")$rt[subset(subjAccFreq,block=="test_x")$freq=="lf"],paired=T)
+```
+
+#### Plotting Accuracy and Reaction Times
+
+``` {r, warning=FALSE, message=FALSE}
+#plot
+p1 <- ggplot(testXAcc,aes(freq,accuracy,color=freq,fill=freq))+
+  geom_bar(stat="identity",alpha=0.5,size=1.2)+ 
+  geom_jitter(data=subset(subjAccFreq,block=="test_x"),width=0.2,height=0.03)+
+  geom_errorbar(aes(ymin=lowerCI,ymax=upperCI),width=0.05,color="black",size=1.2)+
+  #scale_color_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_color_manual(values = c("#E41A1C","#377EB8"),
+                     #values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  # scale_fill_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_fill_manual(values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  scale_x_discrete(name="Frequency",breaks=c("hf","lf"),labels=c("high-\nfrequency","low-\nfrequency"))+
+  xlab("Accuracy")+
+  theme_classic(base_size=20)+
+  theme(legend.position="none")+
+  ylim(0,1.05)
+
+p2 <- ggplot(testXRT,aes(freq,rt,color=freq,fill=freq))+
+  geom_bar(stat="identity",alpha=0.5,size=1.2)+ 
+  geom_violin(data=subset(subjAccFreq,block=="test_x"),fill=NA,alpha=0)+
+  geom_jitter(data=subset(subjAccFreq,block=="test_x"),width=0.2,height=0.03)+
+  geom_errorbar(aes(ymin=lowerCI,ymax=upperCI),width=0.05,color="black",size=1.2)+
+    #scale_color_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_color_manual(values = c("#E41A1C","#377EB8"),
+                     #values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  # scale_fill_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_fill_manual(values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  scale_x_discrete(name="Frequency",breaks=c("hf","lf"),labels=c("high-\nfrequency","low-\nfrequency"))+
+  ylab("Reaction Time (ms)")+
+  theme_classic(base_size=20)+
+  theme(legend.position="none")
+p <- plot_grid(p1,p2)
+p
+# save plot
+ggsave(here::here("plots","exp1_testXCheck.jpg"), width=9, height=6)
+```
+
+### Untimed Retention Test
+
+Participants' performance on the Untimed Retention test at the conclusion of the experiment.
+
+#### Accuracy
+
+```{r}
+# accuracy
+nameCheckAcc <-  summarySEwithin(subset(subjAccFreq,block=="name_check"), measurevar="accuracy",withinvars=c("freq"),idvar="subjCode")
+nameCheckAcc$lowerCI <-  nameCheckAcc$accuracy - nameCheckAcc$ci
+nameCheckAcc$upperCI <-  nameCheckAcc$accuracy + nameCheckAcc$ci
+nameCheckAcc %>%
+  select(-sd,-ci,-accuracy_norm) %>%
+  kable()
+
+#t-test
+t.test(subset(subjAccFreq,block=="name_check")$accuracy[subset(subjAccFreq,block=="name_check")$freq=="hf"],
+       subset(subjAccFreq,block=="name_check")$accuracy[subset(subjAccFreq,block=="name_check")$freq=="lf"],paired=T)
+```
+
+#### Reaction Times
+
+``` {r}
+# reaction times
+nameCheckRT <-  summarySEwithin(subset(subjAccFreq,block=="name_check"), measurevar="rt",withinvars=c("freq"),idvar="subjCode")
+nameCheckRT$lowerCI <-  nameCheckRT$rt - nameCheckRT$ci
+nameCheckRT$upperCI <-  nameCheckRT$rt + nameCheckRT$ci
+nameCheckRT %>%
+  select(-sd,-ci,-rt_norm) %>%
+  kable()
+#t-test
+t.test(subset(subjAccFreq,block=="name_check")$rt[subset(subjAccFreq,block=="name_check")$freq=="hf"],
+       subset(subjAccFreq,block=="name_check")$rt[subset(subjAccFreq,block=="name_check")$freq=="lf"],paired=T)
+```
+
+#### Plotting Accuracy and Reaction Times
+
+```{r, warning=FALSE, message=FALSE}
+#plot
+p1 <- ggplot(nameCheckAcc,aes(freq,accuracy,color=freq,fill=freq))+
+  geom_bar(stat="identity",alpha=0.5,size=1.2)+ 
+  geom_jitter(data=subset(subjAccFreq,block=="name_check"),width=0.2,height=0.03)+
+  geom_errorbar(aes(ymin=lowerCI,ymax=upperCI),width=0.05,color="black",size=1.2)+
+    #scale_color_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_color_manual(values = c("#E41A1C","#377EB8"),
+                     #values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  # scale_fill_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_fill_manual(values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  scale_x_discrete(name="Frequency",breaks=c("hf","lf"),labels=c("high-\nfrequency","low-\nfrequency"))+
+  theme_classic(base_size=20)+
+  theme(legend.position="none")+
+  ylim(0,1.05)
+
+p2 <- ggplot(nameCheckRT,aes(freq,rt,color=freq,fill=freq))+
+  geom_bar(stat="identity",alpha=0.5,size=1.2)+ 
+  geom_violin(data=subset(subjAccFreq,block=="name_check"),fill=NA,alpha=0)+
+  geom_jitter(data=subset(subjAccFreq,block=="name_check"),width=0.2,height=0.03)+
+  geom_errorbar(aes(ymin=lowerCI,ymax=upperCI),width=0.05,color="black",size=1.2)+
+    #scale_color_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_color_manual(values = c("#E41A1C","#377EB8"),
+                     #values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  # scale_fill_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_fill_manual(values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  scale_x_discrete(name="Frequency",breaks=c("hf","lf"),labels=c("high-\nfrequency","low-\nfrequency"))+
+  ylab("Reaction Time (ms)")+
+  theme_classic(base_size=20)+
+  theme(legend.position="none")
+p <- plot_grid(p1,p2)
+p
+ggsave(here::here("plots","exp1_finalNameCheck.jpg"), width=9, height=6)
+```
+
+## Frequency Effect on Word Choice {.tabset}
+
+### Main Model
+
+In our main analysis, we considered participants’ likelihood of choosing the word for the nearest compass direction, dependent on whether that compass direction was a high- or a low-frequency word, while controlling for the distance from the nearest learned compass direction. We focused specifically on low-frequency/high-frequency trials, in which a compass direction was tested in between a low-frequency and a high-frequency trained direction. 
+
+As a conservative test, we retained only trials in which participants chose one of the two principal direction words within 45° of the stimulus direction (`r round(nrow(subset(d, listChoice==1))/nrow(subset(d, !is.na(hfTrial))),4)*100`% of all low-frequency/high-frequency trials).
+
+```{r, warning=FALSE, message=FALSE}
+#just trials with a left or right angle choice
+#model
+m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+(1+hfTrial+angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+confint(m,method="Wald")[8:10,]
+
+#calculate shift in x-axis units (degrees of angle)
+shift_x <- -(summary(m)$coefficients[1,1]+0.5*summary(m)$coefficients[2,1])/summary(m)$coefficients[3,1] + (summary(m)$coefficients[1,1]-0.5*summary(m)$coefficients[2,1])/summary(m)$coefficients[3,1]
+#low 95% CI
+shift_x_lower <- -(summary(m)$coefficients[1,1]+0.5*confint(m,method="Wald")[8:10,][2,1])/summary(m)$coefficients[3,1] + (summary(m)$coefficients[1,1]-0.5*confint(m,method="Wald")[8:10,][2,1])/summary(m)$coefficients[3,1]
+#high 95% CI
+shift_x_upper <- -(summary(m)$coefficients[1,1]+0.5*confint(m,method="Wald")[8:10,][2,2])/summary(m)$coefficients[3,1] + (summary(m)$coefficients[1,1]-0.5*confint(m,method="Wald")[8:10,][2,2])/summary(m)$coefficients[3,1]
+
+## Main model has a singular fit warning - since this fit does not appear to impact fit, we retained the more complex random effects structure.
+## However, we also fit a simplified model with the random slope for (the less theoretically important predictor) angleDiffFromMatchC removed, to ensure that the results are similar across different random effects structures and to alleviate concerns about a the boundary fit.
+## This model yields very similar results (uncomment model below to view)
+# m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+(1+hfTrial|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+# summary(m)
+```
+
+This effect corresponded to an estimated `r round(shift_x,2)`° shift (95% CI = [`r round(shift_x_lower,2)`°, `r round(shift_x_upper,2)`°]) in participants’ decision boundary for high-frequency words as compared to low-frequency words.
+
+### Robustness Checks
+
+#### Controlling for final retention accuracy of labels on each trial
+
+To ensure that the frequency effect is not an artifact of participants’ being slightly more likely to forget the low-frequency labels, we first re-fit the model while controlling for participants' accuracy during the Untimed Retention Test for the two (nearby) compass directions involved in each trial.
+
+```{r, warning=FALSE, message=FALSE}
+#controlling for accuracy for nearby labels
+m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+finalAccuracyNearbyLabels+(1+hfTrial+angleDiffFromMatchC+finalAccuracyNearbyLabels|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+confint(m,method="Wald")[12:15,]
+
+## maximal model yields a singular fit
+## model with simpler random-effects structure (removing non-theoretically important random slope for angleDiffFromMatchC and finalAccuracyNearbyLabels) yields similar results for frequency effect without singular fit
+# m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+finalAccuracyNearbyLabels+(1+hfTrial|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+# summary(m)
+```
+
+#### Including only participants with perfect recall for all compass directions at the end of the experiment
+
+To further ensure that the frequency effect is not an artifact of participants’ being slightly more likely to forget the low-frequency labels, we next re-fit the same model using a stricter inclusion criterion, including only participants who recalled all items correctly during the Untimed Retetion test.
+
+```{r, warning=FALSE, message=FALSE}
+final_accuracy <- d %>%
+  filter(trialType=="finalName") %>%
+  group_by(subjCode,trialType) %>%
+  summarize(N=n(),accuracy=mean(isRight)) %>%
+  ungroup()
+
+#select only participants with perfect recall on the final test block
+perfect_final_accuracy_subjects <- as.character(filter(final_accuracy,accuracy==1)$subjCode)
+
+m=glmer(matchChoice~hfTrial+angleDiffFromMatchC+(1+hfTrial+angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(d, listChoice==1&subjCode %in% perfect_final_accuracy_subjects),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+confint(m,method="Wald")[8:10,]
+
+## maximal model yields a singular fit
+## model with simpler random-effects structure (random slope for angleDiffFromMatchC removed) yields similar results without singular fit
+# m=glmer(matchChoice~hfTrial+angleDiffFromMatchC+(1+hfTrial|subjCode)+(1|targetLabel),data=subset(d, listChoice==1&subjCode %in% perfect_final_accuracy_subjects),family=binomial,glmerControl(optimizer="bobyqa"))
+# summary(m)
+```
+
+#### Controlling for compass direction character length
+
+The words given to each of the compass directions varied in character length (and therefore perhaps in how easy they are to produce/ type). Beyond randomly assigning compass directions and counterbalancing their roles across participants, we also fit all models with by-item random effects to ensure that the effect of frequency generalizes across items. In the following model, we also explicitly control for character length to ensure that the effects hold even after accounting for character length of the nearest/ target compass direction.
+
+```{r, warning=FALSE, message=FALSE}
+m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+nearestLabel_length+(1+hfTrial+angleDiffFromMatchC+nearestLabel_length|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+confint(m,method="Wald")[8:10,]
+
+## maximal model yields a singular fit
+## model with simpler random-effects structure (random slopes for angleDiffFromMatchC and nearestLabel_length removed) yields similar results without singular fit
+# m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+nearestLabel_length+(1+hfTrial|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+# summary(m)
+```
+
+#### Controlling for number of training blocks
+
+ Since participants were required to produce all 8 compass directions perfectly during a Word Recall block in order to advance to the Treasure Hunt Phase (otherwise returning to the Word Learning Phase for further training), participants varied in the duration of their training. The extent to which participants were trained on the compass directions may influence the degree to which participants exhibited an effect of frequency on lexical selection. In the main logistic mixed-effects analyses demonstrating the effect of word frequency on lexical selection, we also fit a model controlling for differences in training duration by including the number of training blocks as a fixed effect. 
+
+```{r, warning=FALSE, message=FALSE}
+m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+num_pairlearn_blocks+(1+hfTrial+angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+confint(m,method="Wald")[8:11,]
+
+## maximal model yields a singular fit
+## model with simpler random-effects structure (random slope for angleDiffFromMatchC removed) yields similar results without singular fit
+# m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+num_pairlearn_blocks+(1+hfTrial|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+# summary(m)
+```
+
+### Reaction Time Analysis
+
+#### Descriptives
+
+We investigated participants’ speed in responding on trials in which they chose the nearest word (thereby maximizing message alignment - analogous to RT on "correct" trials).
+
+```{r}
+# splitting reaction time by word frequency on trials during the Treasure Hunt Phase
+summarized_rt <- d %>%
+  filter(matchChoice==1) %>%
+  summarySEwithin(measurevar="rt",withinvars=c("hfTrial"),idvar="subjCode") %>%
+  mutate(lower_ci = rt - ci,
+         upper_ci = rt + ci) %>%
+  mutate(hfTrial=ifelse(hfTrial==-0.5,"low-frequency","high-frequency"))%>%
+  select(-sd,-ci,-rt_norm)
+kable(summarized_rt)
+
+summarized_rt_block <- d %>%
+  filter(matchChoice==1) %>%
+  summarySEwithin(measurevar="rt",withinvars=c("block","hfTrial"),idvar="subjCode") %>%
+  mutate(lower_ci = rt - ci,
+         upper_ci = rt + ci) %>%
+  mutate(hfTrial=ifelse(hfTrial==-0.5,"low-frequency","high-frequency")) %>%
+  select(-sd,-ci,-rt_norm)
+kable(summarized_rt_block)
+```
+
+
+#### Linear mixed-effects model
+
+We fit a linear mixed-effect model predicting participants’ reaction times from Word Frequency (centered; High = -0.5 vs. Low = -0.5) and Distance from Nearest Principal Direction with the same random effects structure as above. 
+
+```{r}
+#RT effect on trials in which nearest word is chosen
+m=lmer(rt~hfTrial+angleDiffFromMatchC+(1+hfTrial+angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(d, matchChoice==1), control=lmerControl(optimizer="bobyqa"))
+summary(m)
+Anova(m,type="III",test="F")
+confint(m,method="Wald")
+
+#no interaction with block
+#include highest order interaction terms as random slopes
+m=lmer(rt~(hfTrial+angleDiffFromMatchC)*blockC+(1+hfTrial:blockC+angleDiffFromMatchC:blockC|subjCode)+(1|targetLabel),data=subset(d,matchChoice==1), control=lmerControl(optimizer="bobyqa"))
+summary(m)
+Anova(m,type="III",test="F")
+```
+
+## Plot
+
+Plot the effect of training frequency on word/ compass direction choice.
+
+```{r, warning=FALSE, message=FALSE}
+#refit model without centering angle for simpler plotting (coefficients essentially equivalent)
+m <- glmer(matchChoice~hfTrial+angleDiffFromMatch+(1+hfTrial+angleDiffFromMatch|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+
+pX <- expand.grid(angleDiffFromMatch=seq(0,22.5,by=0.1),hfTrial=c(-0.5,0.5))
+
+predictions <- predictSE(m,pX,re.form=NA, type="response")
+pX$fit <- predictions$fit
+pX$se.fit <- predictions$se.fit
+
+### Three different plotting designs - same effect ###
+
+# Plot 1
+
+q <- ggplot(subset(d, trialType=="test"&!is.na(matchChoice)),aes(angleDiffFromMatch,matchChoice,color=as.character(hfTrial)))+
+  geom_jitter(width=0.5,height=0.03,alpha=0.2)+
+  #geom_violinh(aes(y=as.factor(matchChoice),fill=as.character(hfTrial)),scale="count",width=0.3,alpha=0.3,color=NA)+
+  #geom_violinhalf(aes(y=as.factor(matchChoice),fill=as.character(hfTrial)),scale="count",width=0.3,alpha=0.3,color=NA,orientation="y")+
+  geom_smooth(data=pX,aes(y=fit,ymax=fit+se.fit,ymin=fit-se.fit,fill=as.character(hfTrial)),stat="identity")+
+  theme_classic(base_size=18)+
+  ylab("Probability of choosing\nnearest compass direction")+
+  # scale_color_brewer(palette="Set1",name="Frequency of Nearest Word",
+  #                    breaks=c(0.5,-0.5),
+  #                    labels=c("High-Frequency","Low-Frequency"),direction=-1)+
+  scale_color_manual(values = c("#E41A1C","#377EB8"),
+                    name="Frequency of Compass Direction",
+                     breaks=c(0.5,-0.5),
+                     labels=c("High-Frequency","Low-Frequency"))+
+  # scale_fill_brewer(palette="Set1",name="Frequency of Nearest Compass Direction",
+  #                    breaks=c(0.5,-0.5),
+  #                    labels=c("High-Frequency","Low-Frequency"),direction=-1)+
+  scale_fill_manual(values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency of Compass Direction",
+                     breaks=c(0.5,-0.5),
+                     labels=c("High-Frequency","Low-Frequency"))+
+  xlab("Distance from nearest compass direction")+
+  geom_vline(xintercept=22.5,linetype="dashed")+
+  theme(legend.position=c(0.4,0.4))#+
+  #ylim(-0.05,1.05)
+ggsave(here::here("plots","exp1_frequencyEffect_old.jpg"), width=9, height=6)
+
+#Plot 2
+
+p_freq1 <- ggplot(subset(d, trialType=="test"&!is.na(matchChoice)),aes(angleDiffFromMatch,as.factor(matchChoice),color=as.character(hfTrial)))+
+geom_point(size = 0.5, alpha=0.3,shape=19,position = position_jitterdodge(jitter.width = 0.05,jitter.height = 0.5,
+dodge.width = 0.2,
+seed = 1
+))+
+  geom_violinh(data=subset(d, trialType=="test"&!is.na(matchChoice)&hfTrial==0.5),aes(fill=as.character(hfTrial)),position = position_nudge(x = 0, y = .3 ),scale="count",width=0.4,alpha=0.5,color=NA)+
+  geom_violinh(data=subset(d, trialType=="test"&!is.na(matchChoice)&hfTrial==-0.5),aes(fill=as.character(hfTrial)),position = position_nudge(x = 0, y = -.3 ),scale="count",width=0.4,alpha=0.5,color=NA)+
+  geom_smooth(data=pX,aes(y=fit*4+1,ymax=(fit+se.fit)*4+1,ymin=(fit-se.fit)*4+1,fill=as.character(hfTrial)),stat="identity")+
+  theme_classic(base_size=18)+
+  ylab("Probability of choosing\nnearest compass direction")+
+  # scale_color_brewer(palette="Set1",name="Frequency of Nearest Word",
+  #                    breaks=c(0.5,-0.5),
+  #                    labels=c("High-Frequency","Low-Frequency"),direction=-1)+
+  scale_color_manual(values = c("#E41A1C","#377EB8"),
+                    name="Frequency of Compass Direction",
+                     breaks=c(0.5,-0.5),
+                     labels=c("High-Frequency","Low-Frequency"))+
+  # scale_fill_brewer(palette="Set1",name="Frequency of Nearest Compass Direction",
+  #                    breaks=c(0.5,-0.5),
+  #                    labels=c("High-Frequency","Low-Frequency"),direction=-1)+
+  scale_fill_manual(values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency of Compass Direction",
+                     breaks=c(0.5,-0.5),
+                     labels=c("High-Frequency","Low-Frequency"))+
+  scale_y_discrete(limits=c("0","0.25","0.5","0.75","1"))+
+  xlab("Distance from nearest compass direction")+
+  geom_vline(xintercept=22.5,linetype="dashed")+
+  theme(legend.position=c(0.4,0.4))
+p_freq1
+ggsave(here::here("plots","exp1_frequencyEffect.jpg"), width=9, height=6)
+
+# Plot 3
+
+#alternate
+p <- ggplot(subset(d, trialType=="test"&!is.na(matchChoice)),aes(angleDiffFromMatch,as.factor(matchChoice),color=as.character(hfTrial)))+
+geom_point(size = 0.5, shape=19,alpha=0.2,position = position_jitterdodge(jitter.width = 0.05,jitter.height = 0.5,
+dodge.width = 1.2,
+seed = 1
+))+
+  geom_violinh(data=subset(d, trialType=="test"&!is.na(matchChoice)&hfTrial==0.5),aes(fill=as.character(hfTrial)),position = position_nudge(x = 0, y = .3 ),scale="count",width=0.75,alpha=0.4, color=NA)+
+  geom_violinh(data=subset(d, trialType=="test"&!is.na(matchChoice)&hfTrial==-0.5),aes(fill=as.character(hfTrial)),position = position_nudge(x = 0, y = -.3 ),scale="count",width=0.75,alpha=0.4,color=NA)+
+  geom_smooth(data=pX,aes(y=fit*4+1,ymax=(fit+se.fit)*4+1,ymin=(fit-se.fit)*4+1,fill=as.character(hfTrial)),stat="identity")+
+  theme_classic(base_size=18)+
+  ylab("Probability of choosing\nnearest compass direction")+
+  # scale_color_brewer(palette="Set1",name="Frequency of Nearest Word",
+  #                    breaks=c(0.5,-0.5),
+  #                    labels=c("High-Frequency","Low-Frequency"),direction=-1)+
+  scale_color_manual(values = c("#E41A1C","#377EB8"),
+                    name="Frequency of Compass Direction",
+                     breaks=c(0.5,-0.5),
+                     labels=c("High-Frequency","Low-Frequency"))+
+  # scale_fill_brewer(palette="Set1",name="Frequency of Nearest Compass Direction",
+  #                    breaks=c(0.5,-0.5),
+  #                    labels=c("High-Frequency","Low-Frequency"),direction=-1)+
+  scale_fill_manual(values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency of Compass Direction",
+                     breaks=c(0.5,-0.5),
+                     labels=c("High-Frequency","Low-Frequency"))+
+  scale_y_discrete(limits=c("0","0.25","0.5","0.75","1"))+
+  xlab("Distance from nearest compass direction")+
+  geom_vline(xintercept=22.5,linetype="dashed")+
+  theme(legend.position=c(0.4,0.4))
+ggsave(here::here("plots","exp1_frequencyEffect_alternate.jpg"), width=9, height=6)
+```
+
+# Experiment 2
+
+```{r}
+#load data
+d <- filter(all_data, version=="exp2")
+```
+
+## Demographics
+
+Overview over the demographics of participants in Experiment 2.
+
+```{r}
+#demographics 
+subjDemographics <- d %>%
+  select(subjCode,Gender,Age,NativeLang,SecondLangYN) %>%
+  unique() %>%
+  summarize(
+    N=n(),
+    gender_f=sum(Gender=="Female"),
+    mean_age=round(mean(Age,na.rm=T),2),
+    sd_age=round(sd(Age,na.rm=T),2),
+    min_age=round(min(Age,na.rm=T),2),
+    max_age=round(max(Age,na.rm=T),2),
+    native_english=sum(NativeLang=="Yes"),
+    language_besides_english=sum(SecondLangYN=="Yes"),
+  )
+
+kable(subjDemographics)
+```
+
+## Pair Learning Accuracy
+
+### Overall Pair Learning Accuracy
+
+Overview of participants' performance during the Training Phase in which word participants learn each of the 8 compass directions.
+
+```{r, warning=FALSE, message=FALSE}
+#generate summary of learning block numbers
+subj_block_numbers <- d %>%
+  filter(trialType=="pairLearn"|trialType=="name") %>%
+  group_by(subjCode) %>%
+  summarize(
+    num_pairlearn_blocks=max(pairLearnBlockNum,na.rm=T),
+    num_name_blocks=max(nameBlockNum,na.rm=T),
+  )
+#combine with main data frame (for later covariate analysis)
+d <- d %>%
+  left_join(subj_block_numbers)
+
+#generate by-subject accuracy for each block (repeated training blocks are averaged together)
+subjAcc <- d %>%
+  group_by(subjCode,trialType) %>%
+  summarize(accuracy=mean(isRight,na.rm=T),
+              numTrials=sum(!is.na(subjCode)),
+              rt = mean(rt,na.rm=T)) %>%
+  ungroup()
+
+#Overall Accuracy Pair Learning
+overallPairAcc <- subjAcc %>%
+  filter(trialType=="pairLearn") %>%
+  summarize(
+    acc=mean(accuracy,na.rm=T),
+    sd = sd(accuracy),
+    num_trials_avg = mean(numTrials),
+    num_trials_sd = sd(numTrials),
+    num_blocks_avg = mean(numTrials/20),
+    num_blocks_sd= sd(numTrials/20))
+kable(overallPairAcc)
+```
+
+### Accuracy by Block
+
+```{r}
+#pair learning over time
+#summarize by block
+subj_pair_accuracy_by_block <- d %>%
+  filter(trialType=="pairLearn"&!is.na(pairLearnBlockNum)) %>%
+  group_by(subjCode,pairLearnBlockNum) %>%
+  summarize(
+    accuracy=mean(isRight,na.rm=T),
+    numTrials=sum(!is.na(subjCode))) %>%
+  ungroup()
+
+overall_pair_accuracy_by_block <- subj_pair_accuracy_by_block %>%
+  summarySEwithin(measurevar="accuracy",withinvars=c("pairLearnBlockNum"),idvar="subjCode") %>%
+  mutate(lower_ci=accuracy-ci,
+         upper_ci=accuracy+ci) %>%
+  mutate(pairLearnBlockNum=as.numeric(as.character(pairLearnBlockNum)))
+
+#one plot each subject is a line
+pair_accuracy_by_block_exp2 <- ggplot(overall_pair_accuracy_by_block,aes(pairLearnBlockNum,y=accuracy,label=N))+
+  geom_point()+
+  geom_line()+
+  geom_errorbar(aes(ymin=lower_ci,ymax=upper_ci),width=0)+
+  geom_label(aes(y=0.8))+
+  scale_x_continuous(breaks=1:20)+
+  scale_y_continuous(breaks=seq(0.5,1,0.1))+
+  coord_cartesian(ylim = c(0.45, 1.05))+
+  geom_hline(yintercept=0.5,linetype="dashed")+
+  annotate("text",x=2,y=0.55,label="chance")+
+  xlab("Word Learning Block")+
+  ylab("Accuracy")+
+  ylim(0,1.05)
+```
+
+### Word Recall by Block
+
+```{r}
+subj_training_recall_by_block <- d %>%
+  filter(trialType=="name"&!is.na(nameBlockNum)) %>%
+  group_by(subjCode,nameBlockNum) %>%
+  summarize(
+    accuracy=mean(isRight,na.rm=T),
+    numTrials=sum(!is.na(subjCode))) %>%
+  ungroup()
+
+overall_training_recall_by_block <- subj_training_recall_by_block %>%
+  summarySEwithin(measurevar="accuracy",withinvars=c("nameBlockNum"),idvar="subjCode") %>%
+  mutate(lower_ci=accuracy-ci,
+         upper_ci=accuracy+ci) %>%
+  mutate(nameBlockNum=as.numeric(as.character(nameBlockNum)))
+
+#one plot each subject is a line
+training_recall_by_block_exp2 <- ggplot(overall_training_recall_by_block,aes(nameBlockNum,y=accuracy,label=N))+
+  geom_point()+
+  geom_line()+
+  geom_errorbar(aes(ymin=lower_ci,ymax=upper_ci),width=0)+
+  geom_label(aes(y=0.25))+
+  scale_x_continuous(breaks=1:20)+
+  xlab("Training - Word Recall Block")+
+  ylab("Accuracy")+
+  ylim(0,1.05)
+```
+
+## Final word retention {.tabset}
+
+### Timed Retention Test
+
+Participants' performance during the Timed Retention test at the conclusion of the experiment.
+
+#### Accuracy
+
+```{r, warning=FALSE, message=FALSE}
+#summarize subject accuracy by frequency
+subjAccFreq <- d %>%
+  group_by(subjCode,block,freq) %>%
+  summarize(accuracy=mean(isRight,na.rm=T),
+                  rt = mean(rt,na.rm=T)) %>%
+  ungroup()
+
+testXAcc <- summarySEwithin(data=subset(subjAccFreq,block=="test_x"), measurevar="accuracy",withinvars=c("freq"),idvar="subjCode")
+testXAcc$lowerCI <- testXAcc$accuracy - testXAcc$ci
+testXAcc$upperCI <- testXAcc$accuracy + testXAcc$ci
+testXAcc %>%
+  select(-sd,-ci,-accuracy_norm) %>%
+  kable()
+#t-test
+t.test(subset(subjAccFreq,block=="test_x")$accuracy[subset(subjAccFreq,block=="test_x")$freq=="hf"],
+       subset(subjAccFreq,block=="test_x")$accuracy[subset(subjAccFreq,block=="test_x")$freq=="lf"],paired=T)
+```
+
+#### Reaction Times
+
+```{r}
+testXRT <- summarySEwithin(subset(subjAccFreq,block=="test_x"), measurevar="rt",withinvars=c("freq"),idvar="subjCode")
+testXRT$lowerCI <- testXRT$rt - testXRT$ci
+testXRT$upperCI <- testXRT$rt + testXRT$ci
+testXRT %>%
+  select(-sd,-ci,-rt_norm) %>%
+  kable()
+#t-test
+t.test(subset(subjAccFreq,block=="test_x")$rt[subset(subjAccFreq,block=="test_x")$freq=="hf"],
+       subset(subjAccFreq,block=="test_x")$rt[subset(subjAccFreq,block=="test_x")$freq=="lf"],paired=T)
+```
+
+#### Plotting Accuracy and Reaction Times
+
+```{r, warning=FALSE, message=FALSE}
+#plot
+p1 <- ggplot(testXAcc,aes(freq,accuracy,color=freq,fill=freq))+
+  geom_bar(stat="identity",alpha=0.5,size=1.2)+ 
+  geom_jitter(data=subset(subjAccFreq,block=="test_x"),width=0.2,height=0.03)+
+  geom_errorbar(aes(ymin=lowerCI,ymax=upperCI),width=0.05,color="black",size=1.2)+
+    #scale_color_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_color_manual(values = c("#E41A1C","#377EB8"),
+                     #values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  # scale_fill_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_fill_manual(values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  scale_x_discrete(name="Frequency",breaks=c("hf","lf"),labels=c("high-\nfrequency","low-\nfrequency"))+
+  theme_classic(base_size=20)+
+  theme(legend.position="none")+
+  ylim(0,1.05)
+
+p2 <- ggplot(testXRT,aes(freq,rt,color=freq,fill=freq))+
+  geom_bar(stat="identity",alpha=0.5,size=1.2)+ 
+  geom_violin(data=subset(subjAccFreq,block=="test_x"),fill=NA,alpha=0)+
+  geom_jitter(data=subset(subjAccFreq,block=="test_x"),width=0.2,height=0.03)+
+  geom_errorbar(aes(ymin=lowerCI,ymax=upperCI),width=0.05,color="black",size=1.2)+
+    #scale_color_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_color_manual(values = c("#E41A1C","#377EB8"),
+                     #values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  # scale_fill_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_fill_manual(values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  scale_x_discrete(name="Frequency",breaks=c("hf","lf"),labels=c("high-\nfrequency","low-\nfrequency"))+
+  ylab("Reaction Time (ms)")+
+  theme_classic(base_size=20)+
+  theme(legend.position="none")
+p <- plot_grid(p1,p2)
+p
+ggsave(here::here("plots","exp2_testXCheck.jpg"),width=9, height=6)
+```
+
+### Untimed Retention Test
+
+Participants' performance on the Untimed Retention test at the conclusion of the experiment.
+
+#### Accuracy
+
+```{r}
+nameCheckAcc <- summarySEwithin(subset(subjAccFreq,block=="name_check"), measurevar="accuracy",withinvars=c("freq"),idvar="subjCode")
+nameCheckAcc$lowerCI <- nameCheckAcc$accuracy - nameCheckAcc$ci
+nameCheckAcc$upperCI <- nameCheckAcc$accuracy + nameCheckAcc$ci
+nameCheckAcc %>%
+  select(-sd,-ci,-accuracy_norm) %>%
+  kable()
+
+#t-test
+t.test(subset(subjAccFreq,block=="name_check")$accuracy[subset(subjAccFreq,block=="name_check")$freq=="hf"],
+       subset(subjAccFreq,block=="name_check")$accuracy[subset(subjAccFreq,block=="name_check")$freq=="lf"],paired=T)
+```
+
+#### Reaction Times
+
+```{r}
+nameCheckRT <- summarySEwithin(subset(subjAccFreq,block=="name_check"), measurevar="rt",withinvars=c("freq"),idvar="subjCode")
+nameCheckRT$lowerCI <- nameCheckRT$rt - nameCheckRT$ci
+nameCheckRT$upperCI <- nameCheckRT$rt + nameCheckRT$ci
+nameCheckRT %>%
+  select(-sd,-ci,-rt_norm) %>%
+  kable()
+#t-test
+t.test(subset(subjAccFreq,block=="name_check")$rt[subset(subjAccFreq,block=="name_check")$freq=="hf"],
+       subset(subjAccFreq,block=="name_check")$rt[subset(subjAccFreq,block=="name_check")$freq=="lf"],paired=T)
+```
+
+#### Plotting Accuracy and Reaction Times
+
+```{r, warning=FALSE, message=FALSE}
+#plot
+p1 <- ggplot(nameCheckAcc,aes(freq,accuracy,color=freq,fill=freq))+
+  geom_bar(stat="identity",alpha=0.5,size=1.2)+ 
+  geom_jitter(data=subset(subjAccFreq,block=="name_check"),width=0.2,height=0.03)+
+  geom_errorbar(aes(ymin=lowerCI,ymax=upperCI),width=0.05,color="black",size=1.2)+
+    #scale_color_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_color_manual(values = c("#E41A1C","#377EB8"),
+                     #values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  # scale_fill_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_fill_manual(values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  scale_x_discrete(name="Frequency",breaks=c("hf","lf"),labels=c("high-\nfrequency","low-\nfrequency"))+
+  theme_classic(base_size=20)+
+  theme(legend.position="none")+
+  ylim(0,1.05)
+
+p2 <- ggplot(nameCheckRT,aes(freq,rt,color=freq,fill=freq))+
+  geom_bar(stat="identity",alpha=0.5,size=1.2)+ 
+  geom_violin(data=subset(subjAccFreq,block=="name_check"),fill=NA,alpha=0)+
+  geom_jitter(data=subset(subjAccFreq,block=="name_check"),width=0.2,height=0.03)+
+  geom_errorbar(aes(ymin=lowerCI,ymax=upperCI),width=0.05,color="black",size=1.2)+
+    #scale_color_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_color_manual(values = c("#E41A1C","#377EB8"),
+                     #values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  # scale_fill_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_fill_manual(values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  scale_x_discrete(name="Frequency",breaks=c("hf","lf"),labels=c("high-\nfrequency","low-\nfrequency"))+
+  ylab("Reaction Time (ms)")+
+  theme_classic(base_size=20)+
+  theme(legend.position="none")
+p <- plot_grid(p1,p2)
+p
+ggsave(here::here("plots","exp2_finalNameCheck.jpg"), width=9, height=6)
+```
+
+## Frequency Effect on Word Choice {.tabset}
+
+### Main Model
+
+As in Experiment 1, we considered participants’ likelihood of choosing the word for the nearest compass direction, dependent on whether that compass direction was a high- or a low-frequency word, while controlling for the distance from the nearest learned compass direction. We focused specifically on low-frequency/high-frequency trials, in which a compass direction was tested in between a low-frequency and a high-frequency trained direction. 
+
+As a conservative test, we retained only trials in which participants chose one of the two principal direction words within 45° of the stimulus direction (`r round(nrow(subset(d, listChoice==1))/nrow(subset(d, !is.na(hfTrial))),4)*100`% of all low-frequency/high-frequency trials).
+
+```{r, warning=FALSE, message=FALSE}
+#just trials with a left or right angle choice
+m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+(1+hfTrial+angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+confint(m,method="Wald")[8:10,]
+
+#calculate shift in x-axis units (degrees of angle)
+shift_x <- -(summary(m)$coefficients[1,1]+0.5*summary(m)$coefficients[2,1])/summary(m)$coefficients[3,1] + (summary(m)$coefficients[1,1]-0.5*summary(m)$coefficients[2,1])/summary(m)$coefficients[3,1]
+#low 95% CI
+shift_x_lower <- -(summary(m)$coefficients[1,1]+0.5*confint(m,method="Wald")[8:10,][2,1])/summary(m)$coefficients[3,1] + (summary(m)$coefficients[1,1]-0.5*confint(m,method="Wald")[8:10,][2,1])/summary(m)$coefficients[3,1]
+#high 95% CI
+shift_x_upper <- -(summary(m)$coefficients[1,1]+0.5*confint(m,method="Wald")[8:10,][2,2])/summary(m)$coefficients[3,1] + (summary(m)$coefficients[1,1]-0.5*confint(m,method="Wald")[8:10,][2,2])/summary(m)$coefficients[3,1]
+
+## maximal model yields a singular fit
+## model with simpler random-effects structure (random slope for angleDiffFromMatchC removed) yields similar results without singular fit
+# m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+(1+hfTrial|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+# summary(m)
+```
+
+This effect corresponded to an estimated `r round(shift_x,2)`° shift (95% CI = [`r round(shift_x_lower,2)`°, `r round(shift_x_upper,2)`°]) in participants’ decision boundary for high-frequency words as compared to low-frequency words.
+
+### Robustness Checks
+
+#### Controlling for final retention accuracy of labels on each trial
+
+To ensure that the frequency effect is not an artifact of participants’ being slightly more likely to forget the low-frequency labels, we first re-fit the model while controlling for participants' accuracy during the Untimed Retention Test for the two (nearby) compass directions involved in each trial.
+
+```{r, warning=FALSE, message=FALSE}
+#controlling for accuracy for nearby labels
+m=glmer(matchChoice~hfTrial+angleDiffFromMatchC+finalAccuracyNearbyLabels+(1+hfTrial+angleDiffFromMatchC+finalAccuracyNearbyLabels|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+confint(m,method="Wald")[12:15,]
+
+## maximal model yields a singular fit
+## model with simpler random-effects structure (removing non-theoretically important random slope for angleDiffFromMatchC) yields similar results for frequency effect without singular fit
+# m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+finalAccuracyNearbyLabels+(1+hfTrial+finalAccuracyNearbyLabels|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+# summary(m)
+```
+
+#### Including only participants with perfect recall for all compass directions at the end of the experiment
+
+To further ensure that the frequency effect is not an artifact of participants’ being slightly more likely to forget the low-frequency labels, we next re-fit the same model using a stricter inclusion criterion, including only participants who recalled all items correctly during the Untimed Retetion test.
+
+```{r, warning=FALSE, message=FALSE}
+final_accuracy <- d %>%
+  filter(trialType=="finalName") %>%
+  group_by(subjCode,trialType) %>%
+  summarize(N=n(),accuracy=mean(isRight)) %>%
+  ungroup()
+
+#select only participants with perfect recall on the final test block
+perfect_final_accuracy_subjects <- as.character(filter(final_accuracy,accuracy==1)$subjCode)
+
+m=glmer(matchChoice~hfTrial+angleDiffFromMatchC+(1+hfTrial+angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(d, listChoice==1&subjCode %in% perfect_final_accuracy_subjects),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+confint(m,method="Wald")[8:10,]
+
+## maximal model yields a singular fit
+## model with simpler random-effects structure (random slope for angleDiffFromMatchC removed) yields similar results without singular fit
+# m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+(1+hfTrial|subjCode)+(1|targetLabel),data=subset(d, listChoice==1& subjCode %in% perfect_final_accuracy_subjects),family=binomial,glmerControl(optimizer="bobyqa"))
+# summary(m)
+```
+
+#### Controlling for compass direction character length
+
+The words given to each of the compass directions varied in character length (and therefore perhaps in how easy they are to produce/ type). Beyond randomly assigning compass directions and counterbalancing their roles across participants, we also fit all models with by-item random effects to ensure that the effect of frequency generalizes across items. In the following model, we also explicitly control for character length to ensure that the effects hold even after accounting for character length of the nearest/ target compass direction.
+
+```{r, warning=FALSE, message=FALSE}
+m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+nearestLabel_length+(1+hfTrial+angleDiffFromMatchC+nearestLabel_length|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+confint(m,method="Wald")[12:15,]
+
+## maximal model yields a singular fit
+## model with simpler random-effects structure (random slope for angleDiffFromMatchC removed) yields similar results without singular fit
+# m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+nearestLabel_length+(1+hfTrial+nearestLabel_length|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+# summary(m)
+```
+
+#### Controlling for number of training blocks
+
+Since participants were required to produce all 8 compass directions perfectly during a Word Recall block in order to advance to the Treasure Hunt Phase (otherwise returning to the Word Learning Phase for further training), participants varied in the duration of their training. The extent to which participants were trained on the compass directions may influence the degree to which participants exhibited an effect of frequency on lexical selection. In the main logistic mixed-effects analyses demonstrating the effect of word frequency on lexical selection, we also fit a model controlling for differences in training duration by including the number of training blocks as a fixed effect. 
+
+```{r, warning=FALSE, message=FALSE}
+m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+num_pairlearn_blocks+(1+hfTrial+angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+confint(m,method="Wald")[8:11,]
+
+## maximal model yields a singular fit
+## model with simpler random-effects structure yields similar results without singular fit
+# m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+num_pairlearn_blocks+(1|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+# summary(m)
+```
+
+### Reaction Time Analysis
+
+#### Descriptives
+
+We investigated participants’ speed in responding on trials in which they chose the nearest word (thereby maximizing message alignment - analogous to RT on "correct" trials).
+
+```{r}
+# splitting reaction time by word frequency on trials during the Treasure Hunt Phase
+summarized_rt <- d %>%
+  filter(matchChoice==1) %>%
+  summarySEwithin(measurevar="rt",withinvars=c("hfTrial"),idvar="subjCode") %>%
+  mutate(lower_ci = rt - ci,
+         upper_ci = rt + ci) %>%
+  mutate(hfTrial=ifelse(hfTrial==-0.5,"low-frequency","high-frequency"))%>%
+  select(-sd,-ci,-rt_norm)
+kable(summarized_rt)
+
+summarized_rt_block <- d %>%
+  filter(matchChoice==1) %>%
+  summarySEwithin(measurevar="rt",withinvars=c("block","hfTrial"),idvar="subjCode") %>%
+  mutate(lower_ci = rt - ci,
+         upper_ci = rt + ci) %>%
+  mutate(hfTrial=ifelse(hfTrial==-0.5,"low-frequency","high-frequency")) %>%
+  select(-sd,-ci,-rt_norm)
+kable(summarized_rt_block)
+```
+
+#### Linear mixed-effects model
+
+We fit a linear mixed-effect model predicting participants’ reaction times from Word Frequency (centered; High = -0.5 vs. Low = -0.5) and Distance from Nearest Principal Direction with the same random effects structure as above. 
+
+```{r}
+#RT effect on trials in which nearest word is chosen
+#maximal model does not converge, so remove least important
+m=lmer(rt~hfTrial+angleDiffFromMatchC+(1+hfTrial+angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(d, matchChoice==1), control=lmerControl(optimizer="bobyqa"))
+summary(m)
+Anova(m,type="III",test="F")
+confint(m,method="Wald")
+
+#no interaction with block
+#include highest order interaction terms as random slopes
+m=lmer(rt~(hfTrial+angleDiffFromMatchC)*blockC+(1+hfTrial:blockC+angleDiffFromMatchC:blockC|subjCode)+(1|targetLabel),data=subset(d,matchChoice==1), control=lmerControl(optimizer="bobyqa"))
+summary(m)
+Anova(m,type="III",test="F")
+```
+
+## Plot
+
+Plot the effect of training frequency on word/ compass direction choice.
+
+```{r, warning=FALSE, message=FALSE}
+#refit model without centering angle for simpler plotting (coefficients roughly equivalent)
+m <- glmer(matchChoice~hfTrial+angleDiffFromMatch+(1+hfTrial+angleDiffFromMatch|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+
+pX <- expand.grid(angleDiffFromMatch=seq(0,22.5,by=0.1),hfTrial=c(-0.5,0.5))
+
+predictions <- predictSE(m,pX,re.form=NA, type="response")
+pX$fit <- predictions$fit
+pX$se.fit <- predictions$se.fit
+
+#### Three different plot options - same basic design ####
+
+# Plot 1
+
+q <- ggplot(subset(d, trialType=="test"),aes(angleDiffFromMatch,matchChoice,color=as.character(hfTrial)))+
+  geom_jitter(width=0.5,height=0.03,alpha=0.2)+
+  #geom_violinh(aes(y=matchChoice,group=hfTrial),scale="count",width=0.5)+
+  geom_smooth(data=pX,aes(y=fit,ymax=fit+se.fit,ymin=fit-se.fit,fill=as.character(hfTrial)),stat="identity")+
+  theme_classic(base_size=18)+
+  ylab("Probability of choosing nearest word")+
+  scale_color_brewer(palette="Set1",name="Frequency of Nearest Word",
+                     breaks=c(-0.5,0.5),
+                     labels=c("Low-Frequency","High-Frequency"),direction=-1)+
+  scale_fill_brewer(palette="Set1",name="Frequency of Nearest Word",
+                     breaks=c(-0.5,0.5),
+                     labels=c("Low-Frequency","High-Frequency"),direction=-1)+
+  xlab("Distance from nearest word")+
+  geom_vline(xintercept=22.5,linetype="dashed")+
+  theme(legend.position=c(0.4,0.4))+
+  ylim(-0.05,1.05)
+ggsave(here::here("plots","exp2_frequencyEffect_old.jpg"), width=9, height=6)
+
+# Plot 2
+
+p_freq2 <- ggplot(subset(d, trialType=="test"&!is.na(matchChoice)),aes(angleDiffFromMatch,as.factor(matchChoice),color=as.character(hfTrial)))+
+geom_point(size = 0.5, alpha=0.3,shape=19,position = position_jitterdodge(jitter.width = 0.05,jitter.height = 0.5,
+dodge.width = 0.2,
+seed = 1
+))+
+  geom_violinh(data=subset(d, trialType=="test"&!is.na(matchChoice)&hfTrial==0.5),aes(fill=as.character(hfTrial)),position = position_nudge(x = 0, y = .3 ),scale="count",width=0.4,alpha=0.5,color=NA)+
+  geom_violinh(data=subset(d, trialType=="test"&!is.na(matchChoice)&hfTrial==-0.5),aes(fill=as.character(hfTrial)),position = position_nudge(x = 0, y = -.3 ),scale="count",width=0.4,alpha=0.5,color=NA)+
+  geom_smooth(data=pX,aes(y=fit*4+1,ymax=(fit+se.fit)*4+1,ymin=(fit-se.fit)*4+1,fill=as.character(hfTrial)),stat="identity")+
+  theme_classic(base_size=18)+
+  ylab("Probability of choosing\nnearest compass direction")+
+  # scale_color_brewer(palette="Set1",name="Frequency of Nearest Word",
+  #                    breaks=c(0.5,-0.5),
+  #                    labels=c("High-Frequency","Low-Frequency"),direction=-1)+
+  scale_color_manual(values = c("#E41A1C","#377EB8"),
+                    name="Frequency of Compass Direction",
+                     breaks=c(0.5,-0.5),
+                     labels=c("High-Frequency","Low-Frequency"))+
+  # scale_fill_brewer(palette="Set1",name="Frequency of Nearest Compass Direction",
+  #                    breaks=c(0.5,-0.5),
+  #                    labels=c("High-Frequency","Low-Frequency"),direction=-1)+
+  scale_fill_manual(values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency of Compass Direction",
+                     breaks=c(0.5,-0.5),
+                     labels=c("High-Frequency","Low-Frequency"))+
+  scale_y_discrete(limits=c("0","0.25","0.5","0.75","1"))+
+  xlab("Distance from nearest compass direction")+
+  geom_vline(xintercept=22.5,linetype="dashed")+
+  theme(legend.position=c(0.4,0.4))
+p_freq2
+ggsave(here::here("plots","exp2_frequencyEffect.jpg"), width=9, height=6)
+
+# Plot 3
+
+#alternate
+p <- ggplot(subset(d, trialType=="test"&!is.na(matchChoice)),aes(angleDiffFromMatch,as.factor(matchChoice),color=as.character(hfTrial)))+
+geom_point(size = 0.5, shape=19,alpha=0.2,position = position_jitterdodge(jitter.width = 0.05,jitter.height = 0.5,
+dodge.width = 1.2,
+seed = 1
+))+
+  geom_violinh(data=subset(d, trialType=="test"&!is.na(matchChoice)&hfTrial==0.5),aes(fill=as.character(hfTrial)),position = position_nudge(x = 0, y = .3 ),scale="count",width=0.75,alpha=0.4, color=NA)+
+  geom_violinh(data=subset(d, trialType=="test"&!is.na(matchChoice)&hfTrial==-0.5),aes(fill=as.character(hfTrial)),position = position_nudge(x = 0, y = -.3 ),scale="count",width=0.75,alpha=0.4,color=NA)+
+  geom_smooth(data=pX,aes(y=fit*4+1,ymax=(fit+se.fit)*4+1,ymin=(fit-se.fit)*4+1,fill=as.character(hfTrial)),stat="identity")+
+  theme_classic(base_size=18)+
+  ylab("Probability of choosing\nnearest compass direction")+
+  # scale_color_brewer(palette="Set1",name="Frequency of Nearest Word",
+  #                    breaks=c(0.5,-0.5),
+  #                    labels=c("High-Frequency","Low-Frequency"),direction=-1)+
+  scale_color_manual(values = c("#E41A1C","#377EB8"),
+                    name="Frequency of Compass Direction",
+                     breaks=c(0.5,-0.5),
+                     labels=c("High-Frequency","Low-Frequency"))+
+  # scale_fill_brewer(palette="Set1",name="Frequency of Nearest Compass Direction",
+  #                    breaks=c(0.5,-0.5),
+  #                    labels=c("High-Frequency","Low-Frequency"),direction=-1)+
+  scale_fill_manual(values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency of Compass Direction",
+                     breaks=c(0.5,-0.5),
+                     labels=c("High-Frequency","Low-Frequency"))+
+  scale_y_discrete(limits=c("0","0.25","0.5","0.75","1"))+
+  xlab("Distance from nearest compass direction")+
+  geom_vline(xintercept=22.5,linetype="dashed")+
+  theme(legend.position=c(0.4,0.4))
+ggsave(here::here("plots","exp2_frequencyEffect_alternate.jpg"), width=9, height=6)
+```
+
+# Experiment 3
+
+```{r}
+#load data
+d <- filter(all_data,version=="exp3")
+```
+
+## Demographics
+
+Overview over the demographics of participants in Experiment 3.
+
+```{r}
+#demographics
+subjDemographics <- d %>%
+  select(subjCode,Gender,Age,NativeLang,SecondLangYN) %>%
+  unique() %>%
+  summarize(
+    N=n(),
+    gender_f=sum(Gender=="Female"),
+    mean_age=round(mean(Age,na.rm=T),2),
+    sd_age=round(sd(Age,na.rm=T),2),
+    min_age=round(min(Age,na.rm=T),2),
+    max_age=round(max(Age,na.rm=T),2),
+    native_english=sum(NativeLang=="Yes"),
+    language_besides_english=sum(SecondLangYN=="Yes"),
+  )
+
+kable(subjDemographics)
+```
+
+## Pair Learning Accuracy
+
+### Overall Pair Learning Accuracy
+
+Overview of participants' performance during the Training Phase in which word participants learn each of the 8 compass directions.
+
+```{r, warning=FALSE, message=FALSE}
+#generate summary of learning block numbers
+subj_block_numbers <- d %>%
+  filter(trialType=="pairLearn"|trialType=="name") %>%
+  group_by(subjCode) %>%
+  summarize(
+    num_pairlearn_blocks=max(pairLearnBlockNum,na.rm=T),
+    num_name_blocks=max(nameBlockNum,na.rm=T),
+  )
+#combine with main data frame (for later covariate analysis)
+d <- d %>%
+  left_join(subj_block_numbers)
+
+#generate by-subject accuracy for each block (repeated training blocks are averaged together)
+subjAcc <- d %>%
+  group_by(subjCode,trialType) %>%
+  summarize(accuracy=mean(isRight,na.rm=T),
+              numTrials=sum(!is.na(subjCode)),
+              rt = mean(rt,na.rm=T)) %>%
+  ungroup()
+
+#Overall Accuracy Pair Learning
+overallPairAcc <- subjAcc %>%
+  filter(trialType=="pairLearn") %>%
+  summarize(
+    acc=mean(accuracy,na.rm=T),
+    sd = sd(accuracy),
+    num_trials_avg = mean(numTrials),
+    num_trials_sd = sd(numTrials),
+    num_blocks_avg = mean(numTrials/20),
+    num_blocks_sd= sd(numTrials/20))
+kable(overallPairAcc)
+```
+
+### Accuracy by Block
+
+```{r}
+#pair learning over time
+#summarize by block
+subj_pair_accuracy_by_block <- d %>%
+  filter(trialType=="pairLearn"&!is.na(pairLearnBlockNum)) %>%
+  group_by(subjCode,pairLearnBlockNum) %>%
+  summarize(
+    accuracy=mean(isRight,na.rm=T),
+    numTrials=sum(!is.na(subjCode))) %>%
+  ungroup()
+
+overall_pair_accuracy_by_block <- subj_pair_accuracy_by_block %>%
+  summarySEwithin(measurevar="accuracy",withinvars=c("pairLearnBlockNum"),idvar="subjCode") %>%
+  mutate(lower_ci=accuracy-ci,
+         upper_ci=accuracy+ci) %>%
+  mutate(pairLearnBlockNum=as.numeric(as.character(pairLearnBlockNum)))
+
+#one plot each subject is a line
+pair_accuracy_by_block_exp3 <- ggplot(overall_pair_accuracy_by_block,aes(pairLearnBlockNum,y=accuracy,label=N))+
+  geom_point()+
+  geom_line()+
+  geom_errorbar(aes(ymin=lower_ci,ymax=upper_ci),width=0)+
+  geom_label(aes(y=0.8))+
+  scale_x_continuous(breaks=1:20)+
+  scale_y_continuous(breaks=seq(0.5,1,0.1))+
+  coord_cartesian(ylim = c(0.45, 1.05))+
+  geom_hline(yintercept=0.5,linetype="dashed")+
+  annotate("text",x=2,y=0.55,label="chance")+
+  xlab("Word Learning Block")+
+  ylab("Accuracy")+
+  ylim(0,1.05)
+```
+
+### Word Recall by Block
+
+```{r}
+subj_training_recall_by_block <- d %>%
+  filter(trialType=="name"&!is.na(nameBlockNum)) %>%
+  group_by(subjCode,nameBlockNum) %>%
+  summarize(
+    accuracy=mean(isRight,na.rm=T),
+    numTrials=sum(!is.na(subjCode))) %>%
+  ungroup()
+
+overall_training_recall_by_block <- subj_training_recall_by_block %>%
+  summarySEwithin(measurevar="accuracy",withinvars=c("nameBlockNum"),idvar="subjCode") %>%
+  mutate(lower_ci=accuracy-ci,
+         upper_ci=accuracy+ci) %>%
+  mutate(nameBlockNum=as.numeric(as.character(nameBlockNum)))
+
+#one plot each subject is a line
+training_recall_by_block_exp3 <- ggplot(overall_training_recall_by_block,aes(nameBlockNum,y=accuracy,label=N))+
+  geom_point()+
+  geom_line()+
+  geom_errorbar(aes(ymin=lower_ci,ymax=upper_ci),width=0)+
+  geom_label(aes(y=0.25))+
+  scale_x_continuous(breaks=1:20)+
+  xlab("Training - Word Recall Block")+
+  ylab("Accuracy")+
+  ylim(0,1.05)
+```
+
+## Final word retention {.tabset}
+
+### Timed Retention Test
+
+Participants' performance during the Timed Retention test at the conclusion of the experiment.
+
+#### Accuracy
+
+```{r, warning=FALSE, message=FALSE}
+#summarize subject accuracy by frequency
+subjAccFreq <- d %>%
+  group_by(subjCode,block,freq) %>%
+  summarize(accuracy=mean(isRight,na.rm=T),
+                  rt = mean(rt,na.rm=T)) %>%
+  ungroup()
+
+testXAcc <- summarySEwithin(data=subset(subjAccFreq,block=="test_x"), measurevar="accuracy",withinvars=c("freq"),idvar="subjCode")
+testXAcc$lowerCI <- testXAcc$accuracy - testXAcc$ci
+testXAcc$upperCI <- testXAcc$accuracy + testXAcc$ci
+testXAcc %>%
+  select(-sd,-ci,-accuracy_norm) %>%
+  kable()
+#t-test
+t.test(subset(subjAccFreq,block=="test_x")$accuracy[subset(subjAccFreq,block=="test_x")$freq=="hf"],
+       subset(subjAccFreq,block=="test_x")$accuracy[subset(subjAccFreq,block=="test_x")$freq=="lf"],paired=T)
+```
+
+#### Reaction Times
+
+``` {r}
+testXRT <- summarySEwithin(subset(subjAccFreq,block=="test_x"), measurevar="rt",withinvars=c("freq"),idvar="subjCode")
+testXRT$lowerCI <- testXRT$rt - testXRT$ci
+testXRT$upperCI <- testXRT$rt + testXRT$ci
+testXRT %>%
+  select(-sd,-ci,-rt_norm) %>%
+  kable()
+#t-test
+t.test(subset(subjAccFreq,block=="test_x")$rt[subset(subjAccFreq,block=="test_x")$freq=="hf"],
+       subset(subjAccFreq,block=="test_x")$rt[subset(subjAccFreq,block=="test_x")$freq=="lf"],paired=T)
+```
+
+#### Plotting Accuracy and Reaction Times
+
+```{r, warning=FALSE, message=FALSE}
+#plot
+p1 <- ggplot(testXAcc,aes(freq,accuracy,color=freq,fill=freq))+
+  geom_bar(stat="identity",alpha=0.5,size=1.2)+ 
+  geom_jitter(data=subset(subjAccFreq,block=="test_x"),width=0.2,height=0.03)+
+  geom_errorbar(aes(ymin=lowerCI,ymax=upperCI),width=0.05,color="black",size=1.2)+
+    #scale_color_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_color_manual(values = c("#E41A1C","#377EB8"),
+                     #values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  # scale_fill_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_fill_manual(values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  scale_x_discrete(name="Frequency",breaks=c("hf","lf"),labels=c("high-\nfrequency","low-\nfrequency"))+
+  theme_classic(base_size=20)+
+  theme(legend.position="none")+
+  ylim(0,1.05)
+
+p2 <- ggplot(testXRT,aes(freq,rt,color=freq,fill=freq))+
+  geom_bar(stat="identity",alpha=0.5,size=1.2)+ 
+  geom_violin(data=subset(subjAccFreq,block=="test_x"),fill=NA,alpha=0)+
+  geom_jitter(data=subset(subjAccFreq,block=="test_x"),width=0.2,height=0.03)+
+  geom_errorbar(aes(ymin=lowerCI,ymax=upperCI),width=0.05,color="black",size=1.2)+
+    #scale_color_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_color_manual(values = c("#E41A1C","#377EB8"),
+                     #values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  # scale_fill_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_fill_manual(values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  scale_x_discrete(name="Frequency",breaks=c("hf","lf"),labels=c("high-\nfrequency","low-\nfrequency"))+
+  ylab("Reaction Time (ms)")+
+  theme_classic(base_size=20)+
+  theme(legend.position="none")
+p <- plot_grid(p1,p2)
+p
+ggsave(here::here("plots","exp3_testXCheck.jpg"), width=9, height=6)
+```
+
+### Untimed Retention Test
+
+Participants' performance on the Untimed Retention test at the conclusion of the experiment.
+
+#### Accuracy
+
+```{r}
+nameCheckAcc <- summarySEwithin(subset(subjAccFreq,block=="name_check"), measurevar="accuracy",withinvars=c("freq"),idvar="subjCode")
+nameCheckAcc$lowerCI <- nameCheckAcc$accuracy - nameCheckAcc$ci
+nameCheckAcc$upperCI <- nameCheckAcc$accuracy + nameCheckAcc$ci
+nameCheckAcc %>%
+  select(-sd,-ci,-accuracy_norm) %>%
+  kable()
+
+#t-test
+t.test(subset(subjAccFreq,block=="name_check")$accuracy[subset(subjAccFreq,block=="name_check")$freq=="hf"],
+       subset(subjAccFreq,block=="name_check")$accuracy[subset(subjAccFreq,block=="name_check")$freq=="lf"],paired=T)
+```
+
+#### Reaction Times
+
+```{r}
+nameCheckRT <- summarySEwithin(subset(subjAccFreq,block=="name_check"), measurevar="rt",withinvars=c("freq"),idvar="subjCode")
+nameCheckRT$lowerCI <- nameCheckRT$rt - nameCheckRT$ci
+nameCheckRT$upperCI <- nameCheckRT$rt + nameCheckRT$ci
+nameCheckRT %>%
+  select(-sd,-ci,-rt_norm) %>%
+  kable()
+#t-test
+t.test(subset(subjAccFreq,block=="name_check")$rt[subset(subjAccFreq,block=="name_check")$freq=="hf"],
+       subset(subjAccFreq,block=="name_check")$rt[subset(subjAccFreq,block=="name_check")$freq=="lf"],paired=T)
+```
+
+#### Plotting Accuracy and Reaction Times
+```{r, warning=FALSE, message=FALSE}
+#plot
+p1 <- ggplot(nameCheckAcc,aes(freq,accuracy,color=freq,fill=freq))+
+  geom_bar(stat="identity",alpha=0.5,size=1.2)+ 
+  geom_jitter(data=subset(subjAccFreq,block=="name_check"),width=0.2,height=0.03)+
+  geom_errorbar(aes(ymin=lowerCI,ymax=upperCI),width=0.05,color="black",size=1.2)+
+    #scale_color_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_color_manual(values = c("#E41A1C","#377EB8"),
+                     #values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  # scale_fill_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_fill_manual(values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  scale_x_discrete(name="Frequency",breaks=c("hf","lf"),labels=c("high-\nfrequency","low-\nfrequency"))+
+  theme_classic(base_size=20)+
+  theme(legend.position="none")+
+  ylim(0,1.05)
+
+p2 <- ggplot(nameCheckRT,aes(freq,rt,color=freq,fill=freq))+
+  geom_bar(stat="identity",alpha=0.5,size=1.2)+ 
+  geom_violin(data=subset(subjAccFreq,block=="name_check"),fill=NA,alpha=0)+
+  geom_jitter(data=subset(subjAccFreq,block=="name_check"),width=0.2,height=0.03)+
+  geom_errorbar(aes(ymin=lowerCI,ymax=upperCI),width=0.05,color="black",size=1.2)+
+    #scale_color_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_color_manual(values = c("#E41A1C","#377EB8"),
+                     #values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  # scale_fill_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_fill_manual(values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  scale_x_discrete(name="Frequency",breaks=c("hf","lf"),labels=c("high-\nfrequency","low-\nfrequency"))+
+  ylab("Reaction Time (ms)")+
+  theme_classic(base_size=20)+
+  theme(legend.position="none")
+p <- plot_grid(p1,p2)
+p
+ggsave(here::here("plots","exp3_finalNameCheck.jpg"), width=9, height=6)
+```
+
+## Frequency Effect on Word Choice {.tabset}
+
+### Main Model
+
+As in Experiments 1 & 2, we considered participants’ likelihood of choosing the word for the nearest compass direction, dependent on whether that compass direction was a high- or a low-frequency word, while controlling for the distance from the nearest learned compass direction. We focused specifically on low-frequency/high-frequency trials, in which a compass direction was tested in between a low-frequency and a high-frequency trained direction. 
+
+As a conservative test, we retained only trials in which participants chose one of the two principal direction words within 45° of the stimulus direction (`r round(nrow(subset(d, listChoice==1))/nrow(subset(d, !is.na(hfTrial))),4)*100`% of all low-frequency/high-frequency trials).
+
+```{r, warning=FALSE, message=FALSE}
+#just trials with a left or right angle choice
+m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+(1+hfTrial+angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+confint(m,method="Wald")[8:10,]
+
+#calculate shift in x-axis units (degrees of angle)
+shift_x <- -(summary(m)$coefficients[1,1]+0.5*summary(m)$coefficients[2,1])/summary(m)$coefficients[3,1] + (summary(m)$coefficients[1,1]-0.5*summary(m)$coefficients[2,1])/summary(m)$coefficients[3,1]
+#low 95% CI
+shift_x_lower <- -(summary(m)$coefficients[1,1]+0.5*confint(m,method="Wald")[8:10,][2,1])/summary(m)$coefficients[3,1] + (summary(m)$coefficients[1,1]-0.5*confint(m,method="Wald")[8:10,][2,1])/summary(m)$coefficients[3,1]
+#high 95% CI
+shift_x_upper <- -(summary(m)$coefficients[1,1]+0.5*confint(m,method="Wald")[8:10,][2,2])/summary(m)$coefficients[3,1] + (summary(m)$coefficients[1,1]-0.5*confint(m,method="Wald")[8:10,][2,2])/summary(m)$coefficients[3,1]
+
+## maximal model yields a singular fit
+## model with simpler random-effects structure (random slope for angleDiffFromMatchC removed) yields similar results without singular fit
+# m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+(1+hfTrial|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+# summary(m)
+```
+
+This effect corresponded to an estimated `r round(shift_x,2)`° shift (95% CI = [`r round(shift_x_lower,2)`°, `r round(shift_x_upper,2)`°]) in participants’ decision boundary for high-frequency words as compared to low-frequency words.
+
+### Robustness Checks
+
+#### Controlling for final retention accuracy of labels on each trial
+
+To ensure that the frequency effect is not an artifact of participants’ being slightly more likely to forget the low-frequency labels, we first re-fit the model while controlling for participants' accuracy during the Untimed Retention Test for the two (nearby) compass directions involved in each trial.
+
+```{r, warning=FALSE, message=FALSE}
+#controlling for accuracy for nearby labels
+#maximal model does not converge (degenerate Hessian) and has implausible standard errors
+# m=glmer(matchChoice~hfTrial+angleDiffFromMatchC+finalAccuracyNearbyLabels+(1+hfTrial+angleDiffFromMatchC+finalAccuracyNearbyLabels|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+
+# refitting a simplified model with theoretically less important random slope removed (angleDiffFromMatchC)
+m=glmer(matchChoice~hfTrial+angleDiffFromMatchC+finalAccuracyNearbyLabels+(1+hfTrial+finalAccuracyNearbyLabels|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+confint(m,method="Wald")[8:11,]
+```
+
+#### Including only participants with perfect recall for all compass directions at the end of the experiment
+
+To further ensure that the frequency effect is not an artifact of participants’ being slightly more likely to forget the low-frequency labels, we next re-fit the same model using a stricter inclusion criterion, including only participants who recalled all items correctly during the Untimed Retetion test.
+
+```{r, warning=FALSE, message=FALSE}
+final_accuracy <- d %>%
+  filter(trialType=="finalName") %>%
+  group_by(subjCode,trialType) %>%
+  summarize(N=n(),accuracy=mean(isRight)) %>%
+  ungroup()
+
+#select only participants with perfect recall on the final test block
+perfect_final_accuracy_subjects <- as.character(filter(final_accuracy,accuracy==1)$subjCode)
+
+m=glmer(matchChoice~hfTrial+angleDiffFromMatchC+(1+hfTrial+angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(d, listChoice==1&subjCode %in% perfect_final_accuracy_subjects),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+confint(m,method="Wald")[8:10,]
+
+## maximal model yields a singular fit
+## model with simpler random-effects structure (random slopes removed to allow convergence) yields similar results without singular fit
+# m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+(1|subjCode)+(1|targetLabel),data=subset(d, listChoice==1&subjCode %in% perfect_final_accuracy_subjects),family=binomial,glmerControl(optimizer="bobyqa"))
+# summary(m)
+```
+
+#### Controlling for compass direction character length
+
+The words given to each of the compass directions varied in character length (and therefore perhaps in how easy they are to produce/ type). Beyond randomly assigning compass directions and counterbalancing their roles across participants, we also fit all models with by-item random effects to ensure that the effect of frequency generalizes across items. In the following model, we also explicitly control for character length to ensure that the effects hold even after accounting for character length of the nearest/ target compass direction.
+
+```{r, warning=FALSE, message=FALSE}
+# Full model has convergence issues (Unlike other models, standard errors appear to be dramatically underestimated, presumably due to singular fit issue)
+# m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+nearestLabel_length+(1+hfTrial+angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+
+#Simplified model removing by-participant random slope for angleDiffFromMatchC (i.e. slope not relevant to the effect of interest; results are consistent, with more plausible standard errors)
+m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+nearestLabel_length+(1+hfTrial+nearestLabel_length|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+confint(m,method="Wald")[8:11,]
+```
+
+#### Controlling for number of training blocks
+
+Participants varied in the duration of their training. The extent to which participants were trained on the compass directions may influence the degree to which participants exhibited an effect of frequency on lexical selection. In the main logistic mixed-effects analyses demonstrating the effect of word frequency on lexical selection, we also fit a model controlling for differences in training duration by including the number of training blocks as a fixed effect. 
+
+```{r, warning=FALSE, message=FALSE}
+m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+num_pairlearn_blocks+(1+hfTrial+angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+confint(m,method="Wald")[8:11,]
+
+## maximal model yields a singular fit
+## model with simpler random-effects structure yields similar results without singular fit
+# m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+num_pairlearn_blocks+(1+hfTrial|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+# summary(m)
+```
+
+### Reaction Time Analysis
+
+#### Descriptives
+
+We investigated participants’ speed in responding on trials in which they chose the nearest word (thereby maximizing message alignment - analogous to RT on "correct" trials).
+
+```{r}
+# splitting reaction time by word frequency on trials during the Treasure Hunt Phase
+summarized_rt <- d %>%
+  filter(matchChoice==1) %>%
+  summarySEwithin(measurevar="rt",withinvars=c("hfTrial"),idvar="subjCode") %>%
+  mutate(lower_ci = rt - ci,
+         upper_ci = rt + ci) %>%
+  mutate(hfTrial=ifelse(hfTrial==-0.5,"low-frequency","high-frequency"))%>%
+  select(-sd,-ci,-rt_norm)
+kable(summarized_rt)
+
+summarized_rt_block <- d %>%
+  filter(matchChoice==1) %>%
+  summarySEwithin(measurevar="rt",withinvars=c("block","hfTrial"),idvar="subjCode") %>%
+  mutate(lower_ci = rt - ci,
+         upper_ci = rt + ci) %>%
+  mutate(hfTrial=ifelse(hfTrial==-0.5,"low-frequency","high-frequency")) %>%
+  select(-sd,-ci,-rt_norm)
+kable(summarized_rt_block)
+```
+
+
+#### Linear mixed-effects model
+
+We fit a linear mixed-effect model predicting participants’ reaction times from Word Frequency (centered; High = -0.5 vs. Low = -0.5) and Distance from Nearest Principal Direction with the same random effects structure as above. 
+
+```{r}
+#RT effect on trials in which nearest word is chosen
+#maximal model does not converge, so remove least important
+m=lmer(rt~hfTrial+angleDiffFromMatchC+(1+hfTrial+angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(d, matchChoice==1), control=lmerControl(optimizer="bobyqa"))
+summary(m)
+Anova(m,type="III",test="F")
+confint(m,method="Wald")
+
+#no interaction with block
+#include highest order interaction terms as random slopes
+m=lmer(rt~(hfTrial+angleDiffFromMatchC)*blockC+(1+hfTrial:blockC+angleDiffFromMatchC:blockC|subjCode)+(1|targetLabel),data=subset(d,matchChoice==1), control=lmerControl(optimizer="bobyqa"))
+summary(m)
+Anova(m,type="III",test="F")
+```
+
+## Plot
+
+Plot the effect of training frequency on word/ compass direction choice.
+
+```{r, warning=FALSE, message=FALSE}
+#refit model without centering angle for simpler plotting,simplified random effects structure due to non-convergence (coefficients roughly equivalent, slight differences on second decimal point)
+m <- glmer(matchChoice~hfTrial+angleDiffFromMatch+(1+hfTrial|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+
+pX <- expand.grid(angleDiffFromMatch=seq(0,22.5,by=0.1),hfTrial=c(-0.5,0.5))
+
+predictions <- predictSE(m,pX,re.form=NA, type="response")
+pX$fit <- predictions$fit
+pX$se.fit <- predictions$se.fit
+
+#### Three different plot design options ####
+
+# Plot 1
+
+q <- ggplot(subset(d, trialType=="test"),aes(angleDiffFromMatch,matchChoice,color=as.character(hfTrial)))+
+  geom_jitter(width=0.5,height=0.03,alpha=0.2)+
+  #geom_violinh(aes(y=matchChoice,group=hfTrial),scale="count",width=0.5)+
+  geom_smooth(data=pX,aes(y=fit,ymax=fit+se.fit,ymin=fit-se.fit,fill=as.character(hfTrial)),stat="identity")+
+  theme_classic(base_size=18)+
+  ylab("Probability of choosing nearest word")+
+  scale_color_brewer(palette="Set1",name="Frequency of Nearest Word",
+                     breaks=c(-0.5,0.5),
+                     labels=c("Low-Frequency","High-Frequency"),direction=-1)+
+  scale_fill_brewer(palette="Set1",name="Frequency of Nearest Word",
+                     breaks=c(-0.5,0.5),
+                     labels=c("Low-Frequency","High-Frequency"),direction=-1)+
+  xlab("Distance from nearest word")+
+  geom_vline(xintercept=22.5,linetype="dashed")+
+  theme(legend.position=c(0.4,0.4))+
+  ylim(-0.05,1.05)
+ggsave(here::here("plots","exp3_frequencyEffect_old.jpg"), width=9, height=6)
+
+# Plot 2
+
+p_freq3 <- ggplot(subset(d, trialType=="test"&!is.na(matchChoice)),aes(angleDiffFromMatch,as.factor(matchChoice),color=as.character(hfTrial)))+
+geom_point(size = 0.5, alpha=0.3,shape=19,position = position_jitterdodge(jitter.width = 0.05,jitter.height = 0.5,
+dodge.width = 0.2,
+seed = 1
+))+
+  geom_violinh(data=subset(d, trialType=="test"&!is.na(matchChoice)&hfTrial==0.5),aes(fill=as.character(hfTrial)),position = position_nudge(x = 0, y = .3 ),scale="count",width=0.4,alpha=0.5,color=NA)+
+  geom_violinh(data=subset(d, trialType=="test"&!is.na(matchChoice)&hfTrial==-0.5),aes(fill=as.character(hfTrial)),position = position_nudge(x = 0, y = -.3 ),scale="count",width=0.4,alpha=0.5,color=NA)+
+  geom_smooth(data=pX,aes(y=fit*4+1,ymax=(fit+se.fit)*4+1,ymin=(fit-se.fit)*4+1,fill=as.character(hfTrial)),stat="identity")+
+  theme_classic(base_size=18)+
+  ylab("Probability of choosing\nnearest compass direction")+
+  # scale_color_brewer(palette="Set1",name="Frequency of Nearest Word",
+  #                    breaks=c(0.5,-0.5),
+  #                    labels=c("High-Frequency","Low-Frequency"),direction=-1)+
+  scale_color_manual(values = c("#E41A1C","#377EB8"),
+                    name="Frequency of Compass Direction",
+                     breaks=c(0.5,-0.5),
+                     labels=c("High-Frequency","Low-Frequency"))+
+  # scale_fill_brewer(palette="Set1",name="Frequency of Nearest Compass Direction",
+  #                    breaks=c(0.5,-0.5),
+  #                    labels=c("High-Frequency","Low-Frequency"),direction=-1)+
+  scale_fill_manual(values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency of Compass Direction",
+                     breaks=c(0.5,-0.5),
+                     labels=c("High-Frequency","Low-Frequency"))+
+  scale_y_discrete(limits=c("0","0.25","0.5","0.75","1"))+
+  xlab("Distance from nearest compass direction")+
+  geom_vline(xintercept=22.5,linetype="dashed")+
+  theme(legend.position=c(0.4,0.4))
+p_freq3
+ggsave(here::here("plots","exp3_frequencyEffect.jpg"), width=9, height=6)
+
+# Plot 3
+
+#alternate
+p <- ggplot(subset(d, trialType=="test"&!is.na(matchChoice)),aes(angleDiffFromMatch,as.factor(matchChoice),color=as.character(hfTrial)))+
+geom_point(size = 0.5, shape=19,alpha=0.2,position = position_jitterdodge(jitter.width = 0.05,jitter.height = 0.5,
+dodge.width = 1.2,
+seed = 1
+))+
+  geom_violinh(data=subset(d, trialType=="test"&!is.na(matchChoice)&hfTrial==0.5),aes(fill=as.character(hfTrial)),position = position_nudge(x = 0, y = .3 ),scale="count",width=0.75,alpha=0.4, color=NA)+
+  geom_violinh(data=subset(d, trialType=="test"&!is.na(matchChoice)&hfTrial==-0.5),aes(fill=as.character(hfTrial)),position = position_nudge(x = 0, y = -.3 ),scale="count",width=0.75,alpha=0.4,color=NA)+
+  geom_smooth(data=pX,aes(y=fit*4+1,ymax=(fit+se.fit)*4+1,ymin=(fit-se.fit)*4+1,fill=as.character(hfTrial)),stat="identity")+
+  theme_classic(base_size=18)+
+  ylab("Probability of choosing\nnearest compass direction")+
+  # scale_color_brewer(palette="Set1",name="Frequency of Nearest Word",
+  #                    breaks=c(0.5,-0.5),
+  #                    labels=c("High-Frequency","Low-Frequency"),direction=-1)+
+  scale_color_manual(values = c("#E41A1C","#377EB8"),
+                    name="Frequency of Compass Direction",
+                     breaks=c(0.5,-0.5),
+                     labels=c("High-Frequency","Low-Frequency"))+
+  # scale_fill_brewer(palette="Set1",name="Frequency of Nearest Compass Direction",
+  #                    breaks=c(0.5,-0.5),
+  #                    labels=c("High-Frequency","Low-Frequency"),direction=-1)+
+  scale_fill_manual(values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency of Compass Direction",
+                     breaks=c(0.5,-0.5),
+                     labels=c("High-Frequency","Low-Frequency"))+
+  scale_y_discrete(limits=c("0","0.25","0.5","0.75","1"))+
+  xlab("Distance from nearest compass direction")+
+  geom_vline(xintercept=22.5,linetype="dashed")+
+  theme(legend.position=c(0.4,0.4))
+ggsave(here::here("plots","exp3_frequencyEffect_alternate.jpg"), width=9, height=6)
+```
+
+# Experiment 4
+
+```{r}
+#load data
+d <- filter(all_data,version=="exp4")
+
+#exclude subjects
+excludeList <- c()
+d <- subset(d, !(subjCode %in% excludeList))
+```
+
+## Demographics
+
+Overview over the demographics of participants in Experiment 4.
+
+```{r}
+#demographics
+subjDemographics <- d %>%
+  select(subjCode,Gender,Age,NativeLang,SecondLangYN) %>%
+  unique() %>%
+  summarize(
+    N=n(),
+    gender_f=sum(Gender=="Female"),
+    mean_age=round(mean(Age,na.rm=T),2),
+    sd_age=round(sd(Age,na.rm=T),2),
+    min_age=round(min(Age,na.rm=T),2),
+    max_age=round(max(Age,na.rm=T),2),
+    native_english=sum(NativeLang=="Yes"),
+    language_besides_english=sum(SecondLangYN=="Yes"),
+  )
+
+kable(subjDemographics)
+```
+
+## Manipulation check
+
+In Experiment 4, participants were first familiarized with the compass directions in order to unconfound visual familiarity with specific compass directions with naming experience with those compass directions. During Compass Practice Block, the compass directions for which a high-frequency name would later be assigned appeared four times less than the compass directions for which a low-frequency name would be assigned in a training task that did not involve assigning names to the compass direction.
+
+Below, we verify visually that the manipulation was appropriately applied to each participant (to unconfound visual familiarity and naming experience), and summarize participants' performance during the compass direction memory task.
+
+```{r, warning=FALSE, message=FALSE}
+#manipulation check
+#is angle frequency expsoure during learning balanced
+ggplot(subset(d,trialType=="pairLearn"|trialType=="nonvLearn"),aes(angle,fill=trialType))+
+  geom_histogram(position=position_dodge())+
+  facet_wrap(~subjCode)
+ggsave(here::here("plots","exp4_learningAnglesManCheck.jpg"), width=9, height=6)
+
+#generate by-subject accuracy for each block (repeated training blocks are averaged together)
+subjAcc <- d %>%
+  group_by(subjCode,trialType) %>%
+  summarize(
+    accuracy=mean(isRight,na.rm=T),
+    numTrials=sum(!is.na(subjCode)),
+    rt = mean(rt,na.rm=T)) %>%
+  ungroup()
+
+#accuracy on angle memory task
+overallNonVLearn <- subjAcc %>%
+  filter(trialType=="nonvLearn") %>%
+  summarize(acc=mean(accuracy,na.rm=T),
+            sd = sd(accuracy),
+            rt=mean(rt))
+
+kable(overallNonVLearn)
+
+```
+
+## Pair Learning Accuracy
+
+### Overall Pair Learning Accuracy
+
+Overview of participants' performance during the Training Phase in which word participants learn each of the 8 compass directions.
+
+```{r, warning=FALSE, message=FALSE}
+#generate by-subject accuracy for each block (repeated training blocks are averaged together)
+subjAcc <- d %>%
+  group_by(subjCode,trialType) %>%
+  summarize(accuracy=mean(isRight,na.rm=T),
+              numTrials=sum(!is.na(subjCode)),
+              rt = mean(rt,na.rm=T)) %>%
+  ungroup()
+
+#Overall Accuracy Pair Learning
+overallPairAcc <- subjAcc %>%
+  filter(trialType=="pairLearn") %>%
+  summarize(
+    acc=mean(accuracy,na.rm=T),
+    sd = sd(accuracy),
+    num_trials_avg = mean(numTrials),
+    num_trials_sd = sd(numTrials),
+    num_blocks_avg = mean(numTrials/20),
+    num_blocks_sd= sd(numTrials/20))
+kable(overallPairAcc)
+```
+
+### Accuracy by Block
+
+```{r}
+#pair learning over time
+#summarize by block
+subj_pair_accuracy_by_block <- d %>%
+  filter(trialType=="pairLearn"&!is.na(pairLearnBlockNum)) %>%
+  group_by(subjCode,pairLearnBlockNum) %>%
+  summarize(
+    accuracy=mean(isRight,na.rm=T),
+    numTrials=sum(!is.na(subjCode))) %>%
+  ungroup()
+
+overall_pair_accuracy_by_block <- subj_pair_accuracy_by_block %>%
+  summarySEwithin(measurevar="accuracy",withinvars=c("pairLearnBlockNum"),idvar="subjCode") %>%
+  mutate(lower_ci=accuracy-ci,
+         upper_ci=accuracy+ci) %>%
+  mutate(pairLearnBlockNum=as.numeric(as.character(pairLearnBlockNum)))
+
+#one plot each subject is a line
+pair_accuracy_by_block_exp4 <- ggplot(overall_pair_accuracy_by_block,aes(pairLearnBlockNum,y=accuracy,label=N))+
+  geom_point()+
+  geom_line()+
+  geom_errorbar(aes(ymin=lower_ci,ymax=upper_ci),width=0)+
+  geom_label(aes(y=0.8))+
+  scale_x_continuous(breaks=1:20)+
+  scale_y_continuous(breaks=seq(0.5,1,0.1))+
+  coord_cartesian(ylim = c(0.45, 1.05))+
+  geom_hline(yintercept=0.5,linetype="dashed")+
+  annotate("text",x=2,y=0.55,label="chance")+
+  xlab("Word Learning Block")+
+  ylab("Accuracy")+
+  ylim(0,1.05)
+```
+
+### Word Recall by Block
+
+```{r}
+subj_training_recall_by_block <- d %>%
+  filter(trialType=="name"&!is.na(nameBlockNum)) %>%
+  group_by(subjCode,nameBlockNum) %>%
+  summarize(
+    accuracy=mean(isRight,na.rm=T),
+    numTrials=sum(!is.na(subjCode))) %>%
+  ungroup()
+
+overall_training_recall_by_block <- subj_training_recall_by_block %>%
+  summarySEwithin(measurevar="accuracy",withinvars=c("nameBlockNum"),idvar="subjCode") %>%
+  mutate(lower_ci=accuracy-ci,
+         upper_ci=accuracy+ci) %>%
+  mutate(nameBlockNum=as.numeric(as.character(nameBlockNum)))
+
+#one plot each subject is a line
+training_recall_by_block_exp4 <- ggplot(overall_training_recall_by_block,aes(nameBlockNum,y=accuracy,label=N))+
+  geom_point()+
+  geom_line()+
+  geom_errorbar(aes(ymin=lower_ci,ymax=upper_ci),width=0)+
+  geom_label(aes(y=0.25))+
+  scale_x_continuous(breaks=1:20)+
+  xlab("Training - Word Recall Block")+
+  ylab("Accuracy")+
+  ylim(0,1.05)
+```
+
+## Final word retention {.tabset}
+
+### Timed Retention Test
+
+Participants' performance during the Timed Retention test at the conclusion of the experiment.
+
+#### Accuracy
+
+```{r, warning=FALSE, message=FALSE}
+#summarize subject accuracy by frequency
+subjAccFreq <- d %>%
+  group_by(subjCode,block,freq) %>%
+  summarize(accuracy=mean(isRight,na.rm=T),
+            rt = mean(rt,na.rm=T)) %>%
+  ungroup()
+
+testXAcc <-  summarySEwithin(data=subset(subjAccFreq,block=="test_x"), measurevar="accuracy",withinvars=c("freq"),idvar="subjCode")
+testXAcc$lowerCI <-  testXAcc$accuracy - testXAcc$ci
+testXAcc$upperCI <-  testXAcc$accuracy + testXAcc$ci
+testXAcc %>%
+  select(-sd,-ci,-accuracy_norm) %>%
+  kable()
+#t-test
+t.test(subset(subjAccFreq,block=="test_x")$accuracy[subset(subjAccFreq,block=="test_x")$freq=="hf"],
+       subset(subjAccFreq,block=="test_x")$accuracy[subset(subjAccFreq,block=="test_x")$freq=="lf"],paired=T)
+```
+
+#### Reaction Times
+
+```{r}
+# reaction times
+testXRT <-  summarySEwithin(subset(subjAccFreq,block=="test_x"), measurevar="rt",withinvars=c("freq"),idvar="subjCode")
+testXRT$lowerCI <- testXRT$rt - testXRT$ci
+testXRT$upperCI <- testXRT$rt + testXRT$ci
+testXRT %>%
+  select(-sd,-ci,-rt_norm) %>%
+  kable()
+#t-test
+t.test(subset(subjAccFreq,block=="test_x")$rt[subset(subjAccFreq,block=="test_x")$freq=="hf"],
+       subset(subjAccFreq,block=="test_x")$rt[subset(subjAccFreq,block=="test_x")$freq=="lf"],paired=T)
+```
+
+#### Plotting Accuracy and Reaction Times
+
+```{r, warning=FALSE, message=FALSE}
+#plot
+p1 <- ggplot(testXAcc,aes(freq,accuracy,color=freq,fill=freq))+
+  geom_bar(stat="identity",alpha=0.5,size=1.2)+ 
+  geom_jitter(data=subset(subjAccFreq,block=="test_x"),width=0.2,height=0.03)+
+  geom_errorbar(aes(ymin=lowerCI,ymax=upperCI),width=0.05,color="black",size=1.2)+
+    #scale_color_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_color_manual(values = c("#E41A1C","#377EB8"),
+                     #values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  # scale_fill_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_fill_manual(values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  scale_x_discrete(name="Frequency",breaks=c("hf","lf"),labels=c("high-\nfrequency","low-\nfrequency"))+
+  theme_classic(base_size=20)+
+  theme(legend.position="none")+
+  ylim(0,1.05)
+
+p2 <- ggplot(testXRT,aes(freq,rt,color=freq,fill=freq))+
+  geom_bar(stat="identity",alpha=0.5,size=1.2)+ 
+  geom_violin(data=subset(subjAccFreq,block=="test_x"),fill=NA,alpha=0)+
+  geom_jitter(data=subset(subjAccFreq,block=="test_x"),width=0.2,height=0.03)+
+  geom_errorbar(aes(ymin=lowerCI,ymax=upperCI),width=0.05,color="black",size=1.2)+
+    #scale_color_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_color_manual(values = c("#E41A1C","#377EB8"),
+                     #values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  # scale_fill_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_fill_manual(values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  scale_x_discrete(name="Frequency",breaks=c("hf","lf"),labels=c("high-\nfrequency","low-\nfrequency"))+
+  ylab("Reaction Time (ms)")+
+  theme_classic(base_size=20)+
+  theme(legend.position="none")
+p <- plot_grid(p1,p2)
+p
+ggsave(here::here("plots","exp4_testXCheck.jpg"), width=9, height=6)
+```
+
+### Untimed Retention Test
+
+Participants' performance on the Untimed Retention test at the conclusion of the experiment.
+
+#### Accuracy
+
+```{r}
+nameCheckAcc <-  summarySEwithin(subset(subjAccFreq,block=="name_check"), measurevar="accuracy",withinvars=c("freq"),idvar="subjCode")
+nameCheckAcc$lowerCI <-  nameCheckAcc$accuracy - nameCheckAcc$ci
+nameCheckAcc$upperCI <-  nameCheckAcc$accuracy + nameCheckAcc$ci
+nameCheckAcc %>%
+  select(-sd,-ci,-accuracy_norm) %>%
+  kable()
+
+#t-test
+t.test(subset(subjAccFreq,block=="name_check")$accuracy[subset(subjAccFreq,block=="name_check")$freq=="hf"],
+       subset(subjAccFreq,block=="name_check")$accuracy[subset(subjAccFreq,block=="name_check")$freq=="lf"],paired=T)
+```
+
+#### Reaction Times
+
+```{r}
+# reaction times
+nameCheckRT <-  summarySEwithin(subset(subjAccFreq,block=="name_check"), measurevar="rt",withinvars=c("freq"),idvar="subjCode")
+nameCheckRT$lowerCI <-  nameCheckRT$rt - nameCheckRT$ci
+nameCheckRT$upperCI <-  nameCheckRT$rt + nameCheckRT$ci
+nameCheckRT %>%
+  select(-sd,-ci,-rt_norm) %>%
+  kable()
+#t-test
+t.test(subset(subjAccFreq,block=="name_check")$rt[subset(subjAccFreq,block=="name_check")$freq=="hf"],
+       subset(subjAccFreq,block=="name_check")$rt[subset(subjAccFreq,block=="name_check")$freq=="lf"],paired=T)
+```
+
+#### Plotting Accuracy and Reaction Times
+
+```{r, warning=FALSE, message=FALSE}
+#plot
+p1 <- ggplot(nameCheckAcc,aes(freq,accuracy,color=freq,fill=freq))+
+  geom_bar(stat="identity",alpha=0.5,size=1.2)+ 
+  geom_jitter(data=subset(subjAccFreq,block=="name_check"),width=0.2,height=0.03)+
+  geom_errorbar(aes(ymin=lowerCI,ymax=upperCI),width=0.05,color="black",size=1.2)+
+    #scale_color_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_color_manual(values = c("#E41A1C","#377EB8"),
+                     #values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  # scale_fill_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_fill_manual(values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  scale_x_discrete(name="Frequency",breaks=c("hf","lf"),labels=c("high-\nfrequency","low-\nfrequency"))+
+  theme_classic(base_size=20)+
+  theme(legend.position="none")+
+  ylim(0,1.05)
+
+p2 <- ggplot(nameCheckRT,aes(freq,rt,color=freq,fill=freq))+
+  geom_bar(stat="identity",alpha=0.5,size=1.2)+ 
+  geom_violin(data=subset(subjAccFreq,block=="name_check"),fill=NA,alpha=0)+
+  geom_jitter(data=subset(subjAccFreq,block=="name_check"),width=0.2,height=0.03)+
+  geom_errorbar(aes(ymin=lowerCI,ymax=upperCI),width=0.05,color="black",size=1.2)+
+    #scale_color_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_color_manual(values = c("#E41A1C","#377EB8"),
+                     #values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  # scale_fill_brewer(palette="Set1",name="Frequency",
+  #                   breaks=c("hf","lf"),
+  #                   labels=c("high-frequency","low-frequency"))+
+  scale_fill_manual(values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency",
+                     breaks=c("hf","lf"),
+                     labels=c("high-frequency","low-frequency"))+
+  scale_x_discrete(name="Frequency",breaks=c("hf","lf"),labels=c("high-\nfrequency","low-\nfrequency"))+
+  ylab("Reaction Time (ms)")+
+  theme_classic(base_size=20)+
+  theme(legend.position="none")
+p <- plot_grid(p1,p2)
+p
+ggsave(here::here("plots","exp4_finalNameCheck.jpg"), width=9, height=6)
+```
+
+## Frequency Effect on Word Choice {.tabset}
+
+### Main Model
+
+As in Experiments 1-3, we considered participants’ likelihood of choosing the word for the nearest compass direction, dependent on whether that compass direction was a high- or a low-frequency word, while controlling for the distance from the nearest learned compass direction. We focused specifically on low-frequency/high-frequency trials, in which a compass direction was tested in between a low-frequency and a high-frequency trained direction. 
+
+As a conservative test, we retained only trials in which participants chose one of the two principal direction words within 45° of the stimulus direction (`r round(nrow(subset(d, listChoice==1))/nrow(subset(d, !is.na(hfTrial))),4)*100`% of all low-frequency/high-frequency trials).
+
+```{r, warning=FALSE, message=FALSE}
+# full model yields a convergence warning ((degenerate Hessian) - 
+# m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+(1+hfTrial+angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+# summary(m)
+
+#simplified model removing random slope for angleDiffFromMatchC yields consistent results (and no convergence warning)
+m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+(1+hfTrial|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+#confidence interval
+confint(m,method="Wald")[5:7,]
+
+#calculate shift in x-axis units (degrees of angle)
+shift_x <- -(summary(m)$coefficients[1,1]+0.5*summary(m)$coefficients[2,1])/summary(m)$coefficients[3,1] + (summary(m)$coefficients[1,1]-0.5*summary(m)$coefficients[2,1])/summary(m)$coefficients[3,1]
+#low 95% CI
+shift_x_lower <- -(summary(m)$coefficients[1,1]+0.5*confint(m,method="Wald")[5:7,][2,1])/summary(m)$coefficients[3,1] + (summary(m)$coefficients[1,1]-0.5*confint(m,method="Wald")[5:7,][2,1])/summary(m)$coefficients[3,1]
+#high 95% CI
+shift_x_upper <- -(summary(m)$coefficients[1,1]+0.5*confint(m,method="Wald")[5:7,][2,2])/summary(m)$coefficients[3,1] + (summary(m)$coefficients[1,1]-0.5*confint(m,method="Wald")[5:7,][2,2])/summary(m)$coefficients[3,1]
+```
+
+This effect corresponded to an estimated `r round(shift_x,2)`° shift (95% CI = [`r round(shift_x_lower,2)`°, `r round(shift_x_upper,2)`°]) in participants’ decision boundary for high-frequency words as compared to low-frequency words.
+
+### Robustness Checks
+
+#### Controlling for final retention accuracy of labels on each trial
+
+To ensure that the frequency effect is not an artifact of participants’ being slightly more likely to forget the low-frequency labels, we first re-fit the model while controlling for participants' accuracy during the Untimed Retention Test for the two (nearby) compass directions involved in each trial.
+
+```{r, warning=FALSE, message=FALSE}
+#controlling for accuracy for nearby labels
+m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+finalAccuracyNearbyLabels+(1+hfTrial+angleDiffFromMatchC+finalAccuracyNearbyLabels|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+confint(m,method="Wald")[12:15,]
+
+# full model yields a singular fit - simplified model removing random slopes for angleDiffFromMatchC and finalAccuracyNearbyLabels yields consistent results (and no singular fit warning)
+# m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+finalAccuracyNearbyLabels + (1+hfTrial|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+# summary(m)
+```
+
+#### Including only participants with perfect recall for all compass directions at the end of the experiment
+
+We next re-fit the same model using a stricter inclusion criterion, including only participants who recalled all items correctly during the Untimed Retetion test. Here, unlike in the previous three experiments, we found that the effect of frequency did not hold after removing 10 participants who did not have perfect accuracy on the Untimed Retention test.
+
+```{r, warning=FALSE, message=FALSE}
+final_accuracy <- d %>%
+  filter(trialType=="finalName") %>%
+  group_by(subjCode,trialType) %>%
+  summarize(N=n(),accuracy=mean(isRight)) %>%
+  ungroup()
+
+#select only participants with perfect recall on the final test block
+perfect_final_accuracy_subjects <- as.character(filter(final_accuracy,accuracy==1)$subjCode)
+
+#Fit model
+m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+(1+hfTrial+angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(d, listChoice==1&subjCode %in% perfect_final_accuracy_subjects),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+confint(m,method="Wald")[8:10,]
+
+```
+
+#### Selecting only participants with perfect recall on the final Word Learning block
+
+Unlike Exps 1-3, participants in Exp 4 saw a fixed number of learning trials. Therefore, not all participants reached perfect accuracy by the end of the training phase. We therefore re-ran the main model including only participants with perfect recall on the final Word Learning block (i.e., participants who entered the test phase/ "Treasure Hunt" having scored perfectly on all compass directions).
+
+```{r, warning=FALSE, message=FALSE}
+subj_acc_name_block <- d %>%
+  filter(trialType=="name"&block=="init"&!(is.na(nameBlockNum))) %>%
+  group_by(subjCode,nameBlockNum) %>%
+  summarize(N=n(),accuracy=mean(isRight)) %>%
+  ungroup()
+
+#select only participants with perfect recall on the final Word Learning block
+perfect_learning_subjects <- as.character(filter(subj_acc_name_block,nameBlockNum==5&accuracy==1)$subjCode)
+
+m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+(1+hfTrial+angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(d, listChoice==1&subjCode %in% perfect_learning_subjects),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+confint(m,method="Wald")[8:10,]
+```
+
+#### Controlling for compass direction character length
+
+The words given to each of the compass directions varied in character length (and therefore perhaps in how easy they are to produce/ type). Beyond randomly assigning compass directions and counterbalancing their roles across participants, we also fit all models with by-item random effects to ensure that the effect of frequency generalizes across items. In the following model, we also explicitly control for character length to ensure that the effects hold even after accounting for character length of the nearest/ target compass direction.
+
+```{r}
+m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+nearestLabel_length+(1+hfTrial+angleDiffFromMatchC+nearestLabel_length|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+confint(m,method="Wald")[12:15,]
+```
+
+### Reaction Time Analysis
+
+#### Descriptives
+
+We investigated participants’ speed in responding on trials in which they chose the nearest word (thereby maximizing message alignment - analogous to RT on "correct" trials).
+
+```{r}
+# splitting reaction time by word frequency on trials during the Treasure Hunt Phase
+summarized_rt <- d %>%
+  filter(matchChoice==1) %>%
+  summarySEwithin(measurevar="rt",withinvars=c("hfTrial"),idvar="subjCode") %>%
+  mutate(lower_ci = rt - ci,
+         upper_ci = rt + ci) %>%
+  mutate(hfTrial=ifelse(hfTrial==-0.5,"low-frequency","high-frequency"))%>%
+  select(-sd,-ci,-rt_norm)
+kable(summarized_rt)
+
+summarized_rt_block <- d %>%
+  filter(matchChoice==1) %>%
+  summarySEwithin(measurevar="rt",withinvars=c("block","hfTrial"),idvar="subjCode") %>%
+  mutate(lower_ci = rt - ci,
+         upper_ci = rt + ci) %>%
+  mutate(hfTrial=ifelse(hfTrial==-0.5,"low-frequency","high-frequency")) %>%
+  select(-sd,-ci,-rt_norm)
+kable(summarized_rt_block)
+```
+
+#### Linear mixed-effects model
+
+We fit a linear mixed-effect model predicting participants’ reaction times from Word Frequency (centered; High = -0.5 vs. Low = -0.5) and Distance from Nearest Principal Direction with the same random effects structure as above. 
+
+```{r}
+#RT effect on trials in which nearest word is chosen
+#maximal model does not converge, so remove least important
+m=lmer(rt~hfTrial+angleDiffFromMatchC+(1+hfTrial+angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(d, matchChoice==1), control=lmerControl(optimizer="bobyqa"))
+summary(m)
+Anova(m,type="III",test="F")
+confint(m,method="Wald")
+
+#no interaction with block
+#include highest order interaction terms as random slopes
+m=lmer(rt~(hfTrial+angleDiffFromMatchC)*blockC+(1+hfTrial:blockC+angleDiffFromMatchC:blockC|subjCode)+(1|targetLabel),data=subset(d,matchChoice==1), control=lmerControl(optimizer="bobyqa"))
+summary(m)
+Anova(m,type="III",test="F")
+```
+
+## Plot
+
+Plot the effect of training frequency on word/ compass direction choice.
+
+```{r, warning=FALSE, message=FALSE}
+#refit model without centering angle for simpler plotting (coefficients roughly equivalent)
+m <- glmer(matchChoice~hfTrial+angleDiffFromMatch+(1+hfTrial|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+
+pX <- expand.grid(angleDiffFromMatch=seq(0,22.5,by=0.1),hfTrial=c(-0.5,0.5))
+
+predictions <- predictSE(m,pX,re.form=NA, type="response")
+pX$fit <- predictions$fit
+pX$se.fit <- predictions$se.fit
+
+#### Three different plotting design options ####
+
+# Plot 1
+
+q <- ggplot(subset(d, trialType=="test"),aes(angleDiffFromMatch,matchChoice,color=as.character(hfTrial)))+
+  geom_jitter(width=0.5,height=0.03,alpha=0.2)+
+  #geom_violinh(aes(y=matchChoice,group=hfTrial),scale="count",width=0.5)+
+  geom_smooth(data=pX,aes(y=fit,ymax=fit+se.fit,ymin=fit-se.fit,fill=as.character(hfTrial)),stat="identity")+
+  theme_classic(base_size=18)+
+  ylab("Probability of choosing nearest word")+
+  scale_color_brewer(palette="Set1",name="Frequency of Nearest Word",
+                     breaks=c(-0.5,0.5),
+                     labels=c("Low-Frequency","High-Frequency"),direction=-1)+
+  scale_fill_brewer(palette="Set1",name="Frequency of Nearest Word",
+                     breaks=c(-0.5,0.5),
+                     labels=c("Low-Frequency","High-Frequency"),direction=-1)+
+  xlab("Distance from nearest word")+
+  geom_vline(xintercept=22.5,linetype="dashed")+
+  theme(legend.position=c(0.4,0.4))+
+  ylim(-0.05,1.05)
+ggsave(here::here("plots","exp4_frequencyEffect_old.jpg"), width=9, height=6)
+
+# Plot 2
+
+p_freq4 <- ggplot(subset(d, trialType=="test"&!is.na(matchChoice)),aes(angleDiffFromMatch,as.factor(matchChoice),color=as.character(hfTrial)))+
+geom_point(size = 0.5, alpha=0.3,shape=19,position = position_jitterdodge(jitter.width = 0.05,jitter.height = 0.5,
+dodge.width = 0.2,
+seed = 1
+))+
+  geom_violinh(data=subset(d, trialType=="test"&!is.na(matchChoice)&hfTrial==0.5),aes(fill=as.character(hfTrial)),position = position_nudge(x = 0, y = .3 ),scale="count",width=0.4,alpha=0.5,color=NA)+
+  geom_violinh(data=subset(d, trialType=="test"&!is.na(matchChoice)&hfTrial==-0.5),aes(fill=as.character(hfTrial)),position = position_nudge(x = 0, y = -.3 ),scale="count",width=0.4,alpha=0.5,color=NA)+
+  geom_smooth(data=pX,aes(y=fit*4+1,ymax=(fit+se.fit)*4+1,ymin=(fit-se.fit)*4+1,fill=as.character(hfTrial)),stat="identity")+
+  theme_classic(base_size=18)+
+  ylab("Probability of choosing\nnearest compass direction")+
+  # scale_color_brewer(palette="Set1",name="Frequency of Nearest Word",
+  #                    breaks=c(0.5,-0.5),
+  #                    labels=c("High-Frequency","Low-Frequency"),direction=-1)+
+  scale_color_manual(values = c("#E41A1C","#377EB8"),
+                    name="Frequency of Compass Direction",
+                     breaks=c(0.5,-0.5),
+                     labels=c("High-Frequency","Low-Frequency"))+
+  # scale_fill_brewer(palette="Set1",name="Frequency of Nearest Compass Direction",
+  #                    breaks=c(0.5,-0.5),
+  #                    labels=c("High-Frequency","Low-Frequency"),direction=-1)+
+  scale_fill_manual(values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency of Compass Direction",
+                     breaks=c(0.5,-0.5),
+                     labels=c("High-Frequency","Low-Frequency"))+
+  scale_y_discrete(limits=c("0","0.25","0.5","0.75","1"))+
+  xlab("Distance from nearest compass direction")+
+  geom_vline(xintercept=22.5,linetype="dashed")+
+  theme(legend.position=c(0.4,0.4))
+p_freq4
+ggsave(here::here("plots","exp4_frequencyEffect.jpg"), width=9, height=6)
+
+# Plot 3
+
+#alternate
+p <- ggplot(subset(d, trialType=="test"&!is.na(matchChoice)),aes(angleDiffFromMatch,as.factor(matchChoice),color=as.character(hfTrial)))+
+geom_point(size = 0.5, shape=19,alpha=0.2,position = position_jitterdodge(jitter.width = 0.05,jitter.height = 0.5,
+dodge.width = 1.2,
+seed = 1
+))+
+  geom_violinh(data=subset(d, trialType=="test"&!is.na(matchChoice)&hfTrial==0.5),aes(fill=as.character(hfTrial)),position = position_nudge(x = 0, y = .3 ),scale="count",width=0.75,alpha=0.4, color=NA)+
+  geom_violinh(data=subset(d, trialType=="test"&!is.na(matchChoice)&hfTrial==-0.5),aes(fill=as.character(hfTrial)),position = position_nudge(x = 0, y = -.3 ),scale="count",width=0.75,alpha=0.4,color=NA)+
+  geom_smooth(data=pX,aes(y=fit*4+1,ymax=(fit+se.fit)*4+1,ymin=(fit-se.fit)*4+1,fill=as.character(hfTrial)),stat="identity")+
+  theme_classic(base_size=18)+
+  ylab("Probability of choosing\nnearest compass direction")+
+  # scale_color_brewer(palette="Set1",name="Frequency of Nearest Word",
+  #                    breaks=c(0.5,-0.5),
+  #                    labels=c("High-Frequency","Low-Frequency"),direction=-1)+
+  scale_color_manual(values = c("#E41A1C","#377EB8"),
+                    name="Frequency of Compass Direction",
+                     breaks=c(0.5,-0.5),
+                     labels=c("High-Frequency","Low-Frequency"))+
+  # scale_fill_brewer(palette="Set1",name="Frequency of Nearest Compass Direction",
+  #                    breaks=c(0.5,-0.5),
+  #                    labels=c("High-Frequency","Low-Frequency"),direction=-1)+
+  scale_fill_manual(values = c("#E41A1C","#BDE0ED"),
+                    name="Frequency of Compass Direction",
+                     breaks=c(0.5,-0.5),
+                     labels=c("High-Frequency","Low-Frequency"))+
+  scale_y_discrete(limits=c("0","0.25","0.5","0.75","1"))+
+  xlab("Distance from nearest compass direction")+
+  geom_vline(xintercept=22.5,linetype="dashed")+
+  theme(legend.position=c(0.4,0.4))
+ggsave(here::here("plots","exp4_frequencyEffect_alternate.jpg"), width=9, height=6)
+```
+
+
+```{r, fig.show='hide', include=FALSE}
+#### Additional Plots ####
+## combining main plots
+plot_grid(p_freq1,p_freq2, labels=c("A","B"),label_size=20)
+ggsave(here::here("plots","exp12_frequencyEffect.jpg"), width=14, height=8)
+
+plot_grid(p_freq3,p_freq4, labels=c("A","B"),label_size=20)
+ggsave(here::here("plots","exp34_frequencyEffect.jpg"), width=14, height=8)
+
+plot_grid(p_freq1,p_freq2,p_freq3,p_freq4, labels=c("A","B","C","D"),ncol=2,label_size=24)
+ggsave(here::here("plots","exp_all_frequencyEffect.jpg"), width=18, height=14,dpi=300)
+```
+
+# Supplementary Materials
+
+## Word Learning
+
+### Pair Learning Accuracy by Block
+
+```{r}
+plot_grid(
+  pair_accuracy_by_block_exp1,
+  pair_accuracy_by_block_exp2,
+  pair_accuracy_by_block_exp3,
+  pair_accuracy_by_block_exp4,
+  ncol=2,
+  labels=c("A","B","C","D"))
+ggsave(here::here("plots","pair_accuracy_by_block.jpg"), width=9, height=6)
+```
+
+
+### Word Recall by Block
+
+```{r}
+plot_grid(
+  training_recall_by_block_exp1,
+  training_recall_by_block_exp2,
+  training_recall_by_block_exp3,
+  training_recall_by_block_exp4,
+  ncol=2,
+  labels=c("A","B","C","D"))
+ggsave(here::here("plots","training_recall_by_block.jpg"), width=9, height=6)
+```
+
