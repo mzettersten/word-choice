@@ -15,6 +15,7 @@ The folder data_analysis contains the following documents
 - **processed_data**: processed data from Experiments 1-4 and the codebook for the resulting data
 - **analysis_scripts**: R scripts for processing the raw data and analyzing the processed data from Experiments 1-4
 - **plots**: figures generated in the analysis pipeline
+- **experiment_scripts:** Experimental scripts used to present the experiment (python-/ psychopy-based)
 
 ## Link to OSF project:
 
