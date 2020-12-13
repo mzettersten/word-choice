@@ -1,0 +1,1 @@
+subjCode	seed	angleAssign	labelAssign	condition	room	date_time	block	windowSize	dateStr	expVersion	block	trialType	trial	target	angle	left	right	freq	blit	clate	gled	gorm	grah	hoon	noobda	pim	nearbyLabel1	nearbyAngle1	nearbyFreq1	nearbyLabel2	nearbyAngle2	nearbyFreq2	updateScore	feedback	trialType	trialNumber	response	label	isRight	rt	score	numWheelTurnsUp	numWheelTurnsDown
