@@ -475,6 +475,19 @@ confint(m,method="Wald")[8:11,]
 # summary(m)
 ```
 
+#### Checking for an interaction with distance
+
+We also investigated whether distance interacted with frequency condition in predicting lexical selection. We find no evidence of an interaction between frequency and distance.
+
+```{r}
+#full interaction model
+#does not converge (boundary fit)
+#m <- glmer(matchChoice~hfTrial*angleDiffFromMatchC+(1+hfTrial*angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+#simplified random effects structure preserving critical interaction random effect (qualitatively similar results to more complex models)
+m <- glmer(matchChoice~hfTrial*angleDiffFromMatchC+(1+hfTrial:angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+```
+
 ### Reaction Time Analysis
 
 #### Descriptives
@@ -1056,6 +1069,20 @@ confint(m,method="Wald")[8:11,]
 # summary(m)
 ```
 
+#### Checking for an interaction with distance
+
+We also investigated whether distance interacted with frequency condition in predicting lexical selection. We find no evidence of an interaction between frequency and distance.
+
+```{r}
+#full interaction model
+#does not converge (boundary fit)
+# m <- glmer(matchChoice~hfTrial*angleDiffFromMatchC+(1+hfTrial*angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+# summary(m)
+#simplified random effects structure preserving critical interaction random effect (qualitatively similar results to more complex models)
+m <- glmer(matchChoice~hfTrial*angleDiffFromMatchC+(1+hfTrial+hfTrial:angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+```
+
 ### Reaction Time Analysis
 
 #### Descriptives
@@ -1623,6 +1650,20 @@ confint(m,method="Wald")[8:11,]
 ## model with simpler random-effects structure yields similar results without singular fit
 # m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+num_pairlearn_blocks+(1+hfTrial|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
 # summary(m)
+```
+
+#### Checking for an interaction with distance
+
+We also investigated whether distance interacted with frequency condition in predicting lexical selection. We find no evidence of an interaction between frequency and distance.
+
+```{r}
+#full interaction model
+#does not converge (boundary fit)
+# m <- glmer(matchChoice~hfTrial*angleDiffFromMatchC+(1+hfTrial*angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+# summary(m)
+#simplified random effects structure preserving critical interaction random effect (qualitatively similar results to more complex models)
+m <- glmer(matchChoice~hfTrial*angleDiffFromMatchC+(1+hfTrial:angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
 ```
 
 ### Reaction Time Analysis
@@ -2219,6 +2260,20 @@ The words given to each of the compass directions varied in character length (an
 m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+nearestLabel_length+(1+hfTrial+angleDiffFromMatchC+nearestLabel_length|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
 summary(m)
 confint(m,method="Wald")[12:15,]
+```
+
+#### Checking for an interaction with distance
+
+We also investigated whether distance interacted with frequency condition in predicting lexical selection. We find no evidence of an interaction between frequency and distance.
+
+```{r}
+#full interaction model
+#does not converge (boundary fit)
+# m <- glmer(matchChoice~hfTrial*angleDiffFromMatchC+(1+hfTrial*angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+# summary(m)
+#simplified random effects structure preserving critical interaction random effect (qualitatively similar results to more complex models, though here some more non-converging complex models show a significant interaction w/ a similar effect magnitude)
+m <- glmer(matchChoice~hfTrial*angleDiffFromMatchC+(1+hfTrial:angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(d, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
 ```
 
 ### Reaction Time Analysis
