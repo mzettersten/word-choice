@@ -2276,6 +2276,34 @@ m <- glmer(matchChoice~hfTrial*angleDiffFromMatchC+(1+hfTrial:angleDiffFromMatch
 summary(m)
 ```
 
+### Interactions between Experiment
+
+We observed no interaction between Experiment 3 and Experiment 4 (i.e., controllining for amount of visual experience did not significantly reduce the magnitude of the effect relative to Experiment 3, which was identical to Experiment 4 except for the initial training with the visual stimuli).
+
+```{r}
+all_data <- all_data %>% mutate(versionC=case_when(
+  version=="exp3" ~-0.5,
+  version == "exp4"~ 0.5,
+  TRUE ~ NA_real_)) 
+#maximal by-subjects random effects structure does not converge; simplify by-subject random slopes
+#m <- glmer(matchChoice~(hfTrial+angleDiffFromMatchC)*versionC+(1+hfTrial+angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(all_data, listChoice==1& version  %in% c("exp3","exp4")),family=binomial,glmerControl(optimizer="bobyqa"))
+m <- glmer(matchChoice~(hfTrial+angleDiffFromMatchC)*versionC+(1+hfTrial|subjCode)+(1|targetLabel),data=subset(all_data, listChoice==1& version  %in% c("exp3","exp4")),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+```
+
+To also check for any overall differences across experiment version, we also tested for an interaction with experiment across the entire dataset (Exps 1-4). There was no significant difference in the magnitude of the frequency effect across experiments.
+
+```{r}
+#model including the more maximal by-subjects random effects structure does not converge (boundary fit). We therefore prune the model while retaining random slopes for the key effect of interest (hfTrial, i.e. the coefficient testing the frequency effect)
+#m <- glmer(matchChoice~(hfTrial+angleDiffFromMatchC)*version+(1+hfTrial+angleDiffFromMatchC|subjCode)+(1|targetLabel),
+#           data=subset(all_data, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+m <- glmer(matchChoice~(hfTrial+angleDiffFromMatchC)*version+(1+hfTrial|subjCode)+(1|targetLabel),
+           data=subset(all_data, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+Anova(m, type="III")
+```
+
+
 ### Reaction Time Analysis
 
 #### Descriptives
