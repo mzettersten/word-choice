@@ -1626,7 +1626,8 @@ t.test(subset(subjAccFreq,block=="name_check")$accuracy[subset(subjAccFreq,block
 
 ```{r}
 #logistic mixed-effects model, including accounting for non-independence of datasets
-m <- glmer(isRight~freqC+(1+freqC|subjCode)+(1+freqC|target)+(1|version),data=filter(all_data, block=="name_check"),family=binomial)
+#simplified random effects structure to allow convergence
+m <- glmer(isRight~freqC+(1|subjCode)+(1|target)+(1|version),data=filter(all_data, block=="name_check"),family=binomial)
 summary(m)
 ```
 
