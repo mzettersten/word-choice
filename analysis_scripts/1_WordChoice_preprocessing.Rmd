@@ -512,3 +512,9 @@ write.csv(subset(d,version=="exp2"), here::here("processed_data","Words_v2_final
 write.csv(subset(d,version=="exp3"), here::here("processed_data","Words_v3_final_preprocessed.csv"),row.names=F)
 write.csv(subset(d,version=="exp4"), here::here("processed_data","Words_v4_final_preprocessed.csv"),row.names=F)
 ```
+
+### Session Info
+
+```{r}
+sessionInfo()
+```
