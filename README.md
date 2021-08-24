@@ -19,15 +19,15 @@ The folder data_analysis contains the following documents
 
 ## Link to OSF project:
 
-https://osf.io/3svge/
+https://osf.io/3svge/?view_only=7f98d3e153a1427f8eb60503113bb157
 
 ## Analysis Walkthrough
 
 Here is a direct link to the html rendering of the R Markdown file in the data folder. This provides a walkthrough of the major analyses in the paper.
 
-https://mzettersten.github.io/word-choice/analysis_scripts/2_WordChoice_analysis.html
+https://rpubs.com/zcm/good_enough_production
 
 ## Questions
 
-Feel free to contact me at **martincz@princeton.edu** if you have any comments or questions about the data or the analyses.
+Feel free to contact me at **(removed for peer review)** if you have any comments or questions about the data or the analyses.
 
