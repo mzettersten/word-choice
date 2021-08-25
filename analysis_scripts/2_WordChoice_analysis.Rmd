@@ -1,5 +1,7 @@
 ---
 title: "WordChoice Analysis"
+author: "Anonymized for peer review"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
 output:
   html_document:
     code_folding: hide
@@ -1499,6 +1501,263 @@ final_retention_plot(
   )
 ```
 
+## Exps 1 and 2 {.tabset}
+
+To get an overall sense of participants' retention of labels across Experiments 1 and 2, we present descriptives and test for frequency effects across Experiments 1 and 2 on both Timed and Untimed Retention Test trials.
+
+### Timed Retention Test
+
+Participants' performance during the Timed Retention test in Experiments 1 and 2, combined.
+
+#### Accuracy {.tabset}
+
+##### Descriptives
+
+```{r, warning=FALSE, message=FALSE}
+#summarize subject accuracy by frequency
+subjAccFreq_exp12 <- all_data %>%
+  filter(version %in% c("exp1","exp2")) %>%
+  subject_accuracy_by_frequency_by_block()
+
+testXAcc_exp12 <-  summary_se_within_cis(data=subset(subjAccFreq_exp12,block=="test_x"), measurevar="accuracy",withinvars=c("freq"),idvar="subjCode")
+testXAcc_exp12 %>%
+  kable()
+```
+
+Paired t-test comparison
+
+```{r}
+#paired t-test comparison
+t.test(subset(subjAccFreq_exp12,block=="test_x")$accuracy[subset(subjAccFreq_exp12,block=="test_x")$freq=="hf"],
+       subset(subjAccFreq_exp12,block=="test_x")$accuracy[subset(subjAccFreq_exp12,block=="test_x")$freq=="lf"],paired=T)
+```
+
+##### Logistic mixed-effects model
+
+```{r}
+#logistic mixed-effects model, including accounting for non-independence of datasets
+m <- glmer(isRight~freqC+(1+freqC|subjCode)+(1+freqC|nearestLabel)+(1|version),data=filter(all_data, version %in% c("exp1","exp2") & block=="test_x"),family=binomial)
+summary(m)
+```
+
+Interaction between Experiment
+
+```{r}
+all_data <- all_data %>% mutate(versionC=case_when(
+  version=="exp1" ~-0.5,
+  version == "exp2"~ 0.5,
+  TRUE ~ NA_real_)) 
+#logistic mixed-effects model, including accounting for non-independence of datasets
+m <- glmer(isRight~freqC*versionC+(1+freqC|subjCode)+(1+freqC|nearestLabel),data=filter(all_data, version %in% c("exp1","exp2") & block=="test_x"),family=binomial)
+summary(m)
+```
+
+#### Reaction Times {.tabset}
+
+Note: We compute reaction times for *correct* trials only, since reaction times for incorrect responses are difficult to interpret. However, similar patterns of results (generally slower reaction times for low-frequency words) hold when including all trials.
+
+##### Descriptives
+
+``` {r}
+# reaction times
+testXRT_exp12 <-  summary_se_within_cis(subset(subjAccFreq_exp12,block=="test_x"), measurevar="correct_rt",withinvars=c("freq"),idvar="subjCode")
+testXRT_exp12 %>%
+  kable()
+```
+
+Paired t-test comparison
+
+```{r}
+#t-test
+t.test(subset(subjAccFreq_exp12,block=="test_x")$correct_rt[subset(subjAccFreq_exp12,block=="test_x")$freq=="hf"],
+       subset(subjAccFreq_exp12,block=="test_x")$correct_rt[subset(subjAccFreq_exp12,block=="test_x")$freq=="lf"],paired=T)
+```
+
+##### Linear mixed-effects model
+
+First, we fit a linear mixed-effects model with untransformed reaction times (for correct trials only).
+
+```{r}
+#linear mixed-effects model with maximal random effects structure (subjects and items), including accounting for non-independence of datasets
+m <- lmer(rt~freqC+(1+freqC|subjCode)+(1+freqC|nearestLabel)+(1|version),data=filter(all_data, version %in% c("exp1","exp2") & block=="test_x"&isRight==1))
+summary(m)
+```
+
+As is typical in reaction-time data, the distribution of reaction times is skewed (long right tail). 
+
+```{r}
+#distribution of reaction times
+ggplot(filter(all_data, version %in% c("exp1","exp2") & block=="test_x"&isRight==1),aes(rt))+
+  geom_histogram()+
+  xlab("Reaction times (ms) - correct trials")
+```
+
+To address possible resulting violations of model assumptions (non-normal residuals), a common modeling decision is to log-transform reaction times (Cox & Box, 1964; but see e.g., Schramm & Rouder, 2019). We also fit the same linear mixed-effects model with log-transformed reaction times, to ensure that any frequency-based differences are robust across transformations of reaction times.
+
+```{r}
+#linear mixed-effects model with maximal random effects structure (subjects and items), including accounting for non-independence of datasets
+# log-transformed reaction times
+m <- lmer(log_rt~freqC+(1+freqC|subjCode)+(1+freqC|nearestLabel)+(1|version),data=filter(all_data, version %in% c("exp1","exp2") & block=="test_x"&isRight==1))
+summary(m)
+```
+
+Interaction with Experiment.
+
+We also assessed whether these results differed between experiment, both for reaction times and for log-transformed reaction times. We found no evidence for interactions between frequency and experiment.
+
+Untransformed reaction times.
+
+```{r}
+m <- lmer(rt~freqC*versionC+(1+freqC|subjCode)+(1+freqC|nearestLabel),data=filter(all_data, version %in% c("exp1","exp2") & block=="test_x"&isRight==1))
+summary(m)
+```
+
+Log-transformed reaction times.
+
+```{r}
+# log-transformed reaction times
+m <- lmer(log_rt~freqC*versionC+(1+freqC|subjCode)+(1+freqC|nearestLabel),data=filter(all_data, version %in% c("exp1","exp2") & block=="test_x"&isRight==1))
+summary(m)
+```
+
+#### Plotting Accuracy and Reaction Times
+
+```{r, warning=FALSE, message=FALSE}
+#plot
+final_retention_plot(
+  testXAcc_exp12, #summarized accuracy data
+  subset(subjAccFreq_exp12,block=="test_x"), #subject accuracy data
+  testXRT_exp12, #summarized RT data
+  subset(subjAccFreq_exp12,block=="test_x"), # subject RT data
+  plot_path = here::here("plots","exps12_testXCheck.jpg")
+  )
+```
+
+### Untimed Retention Test
+
+Participants' performance on the Untimed Retention test in Experiments 1 and 2, combined.
+
+#### Accuracy {.tabset}
+
+##### Descriptives
+
+```{r}
+# accuracy
+nameCheckAcc_exp12 <- summary_se_within_cis(subset(subjAccFreq_exp12,block=="name_check"), measurevar="accuracy",withinvars=c("freq"),idvar="subjCode")
+nameCheckAcc_exp12 %>%
+  kable()
+```
+
+Paired t-test comparison
+
+```{r}
+#paired t-test comparison
+t.test(subset(subjAccFreq_exp12,block=="name_check")$accuracy[subset(subjAccFreq_exp12,block=="name_check")$freq=="hf"],
+       subset(subjAccFreq_exp12,block=="name_check")$accuracy[subset(subjAccFreq_exp12,block=="name_check")$freq=="lf"],paired=T)
+```
+
+##### Logistic mixed-effects model
+
+```{r}
+#logistic mixed-effects model, including accounting for non-independence of datasets
+#simplified random effects structure due to non-convergence
+m <- glmer(isRight~freqC+(1+freqC|subjCode)+(1|target)+(1|version),data=filter(all_data, version %in% c("exp1","exp2") & block=="name_check"),family=binomial)
+summary(m)
+```
+
+Interaction between Experiment
+
+```{r}
+all_data <- all_data %>% mutate(versionC=case_when(
+  version=="exp1" ~-0.5,
+  version == "exp2"~ 0.5,
+  TRUE ~ NA_real_)) 
+#logistic mixed-effects model, including accounting for non-independence of datasets
+#simplified random effects structure due to non-convergence
+m <- glmer(isRight~freqC*versionC+(1|subjCode)+(1|target),data=filter(all_data, version %in% c("exp1","exp2") & block=="name_check"),family=binomial)
+summary(m)
+```
+
+#### Reaction Times {.tabset}
+
+Note: We compute reaction times for *correct* trials only, since reaction times for incorrect responses are difficult to interpret. However, similar patterns of results (generally slower reaction times for low-frequency words) hold when including all trials.
+
+##### Descriptives
+
+``` {r}
+# reaction times
+nameCheckRT_exp12 <-  summary_se_within_cis(subset(subjAccFreq_exp12,block=="name_check"), measurevar="correct_rt",withinvars=c("freq"),idvar="subjCode")
+nameCheckRT_exp12 %>%
+  kable()
+```
+
+Paired t-test comparison
+
+```{r}
+#t-test
+t.test(subset(subjAccFreq_exp12,block=="name_check")$correct_rt[subset(subjAccFreq_exp12,block=="name_check")$freq=="hf"],
+       subset(subjAccFreq_exp12,block=="name_check")$correct_rt[subset(subjAccFreq_exp12,block=="name_check")$freq=="lf"],paired=T)
+```
+
+##### Linear mixed-effects model
+
+First, we fit a linear mixed-effects model with untransformed reaction times (for correct trials only).
+
+```{r}
+#linear mixed-effects model with maximal random effects structure (subjects and items), including accounting for non-independence of datasets
+m <- lmer(rt~freqC+(1+freqC|subjCode)+(1+freqC|target)+(1|version),data=filter(all_data,version==c("exp1","exp2")& block=="name_check"&isRight==1))
+summary(m)
+```
+
+As is typical in reaction-time data, the distribution of reaction times is skewed (long right tail). 
+
+```{r}
+#distribution of reaction times
+ggplot(filter(all_data, version==c("exp1","exp2")&block=="name_check"&isRight==1),aes(rt))+
+  geom_histogram()+
+  xlab("Reaction times (ms) - correct trials")
+```
+
+To address possible resulting violations of model assumptions (non-normal residuals), a common modeling decision is to log-transform reaction times (Cox & Box, 1964; but see e.g., Schramm & Rouder, 2019). We also fit the same linear mixed-effects model with log-transformed reaction times, to ensure that any frequency-based differences are robust across transformations of reaction times.
+
+```{r}
+#linear mixed-effects model with maximal random effects structure (subjects and items), including accounting for non-independence of datasets
+# log-transformed reaction times
+m <- lmer(log_rt~freqC+(1+freqC|subjCode)+(1+freqC|target)+(1|version),data=filter(all_data, version==c("exp1","exp2")&block=="name_check"&isRight==1))
+summary(m)
+```
+Interaction with Experiment.
+
+We also assessed whether these results differed between experiment, both for reaction times and for log-transformed reaction times. We found no evidence for interactions between frequency and experiment.
+
+Untransformed reaction times.
+
+```{r}
+m <- lmer(rt~freqC*versionC+(1+freqC|subjCode)+(1+freqC|target),data=filter(all_data, version %in% c("exp1","exp2") & block=="name_check"&isRight==1))
+summary(m)
+```
+
+Log-transformed reaction times.
+
+```{r}
+# log-transformed reaction times
+m <- lmer(log_rt~freqC*versionC+(1+freqC|subjCode)+(1+freqC|target),data=filter(all_data, version %in% c("exp1","exp2") & block=="name_check"&isRight==1))
+summary(m)
+```
+
+#### Plotting Accuracy and Reaction Times
+
+```{r, warning=FALSE, message=FALSE}
+#plot
+final_retention_plot(
+  nameCheckAcc_exp12, #summarized accuracy data
+  subset(subjAccFreq_exp12,block=="name_check"), #subject accuracy data
+  nameCheckRT_exp12, #summarized RT data
+  subset(subjAccFreq_exp12,block=="name_check"), # subject RT data
+  here::here("plots","exps12_finalNameCheck.jpg")
+  )
+```
+
 ## All Exps (1-4) {.tabset}
 
 To get an overall sense of participants' retention of labels across all experiments, we present descriptives and test for frequency effects across all experiments (1-4) on both Timed and Untimed Retention Test trials.
@@ -2480,6 +2739,35 @@ all_data <- all_data %>% mutate(versionC=case_when(
 m <- glmer(matchChoice~(hfTrial+angleDiffFromMatchC)*versionC+(1+hfTrial+angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(all_data, listChoice==1& version  %in% c("exp1","exp2")),family=binomial,glmerControl(optimizer="bobyqa"))
 summary(m)
 ```
+
+### Exp 1 vs. Exp 4
+
+We observed no interaction of the frequency effect with experiment version (Experiment 1 vs. Experiment 4).
+
+```{r}
+all_data <- all_data %>% mutate(versionC=case_when(
+  version=="exp1" ~-0.5,
+  version == "exp4"~ 0.5,
+  TRUE ~ NA_real_)) 
+#logistic mixed-effects model (boundary fit, but does not appear to distort estimates - similar results with pruned random effects structure)
+m <- glmer(matchChoice~(hfTrial+angleDiffFromMatchC)*versionC+(1+hfTrial+angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(all_data, listChoice==1& version  %in% c("exp1","exp4")),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+```
+
+### Exp 2 vs. Exp 4
+
+We observed no interaction of the frequency effect with experiment version (Experiment 2 vs. Experiment 4).
+
+```{r}
+all_data <- all_data %>% mutate(versionC=case_when(
+  version=="exp2" ~-0.5,
+  version == "exp4"~ 0.5,
+  TRUE ~ NA_real_)) 
+#logistic mixed-effects model (boundary fit, but does not appear to distort estimates - similar results with pruned random effects structure)
+m <- glmer(matchChoice~(hfTrial+angleDiffFromMatchC)*versionC+(1+hfTrial+angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(all_data, listChoice==1& version  %in% c("exp2","exp4")),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+```
+
 ### Exp 3 vs. Exp 4
 
 We observed no interaction of the frequency effect with experiment version (Experiment 3 vs. Experiment 4) (i.e., controlling for amount of visual experience did not significantly reduce the magnitude of the effect relative to Experiment 3, which was identical to Experiment 4 except for the initial training with the visual stimuli).
@@ -2489,10 +2777,8 @@ all_data <- all_data %>% mutate(versionC=case_when(
   version=="exp3" ~-0.5,
   version == "exp4"~ 0.5,
   TRUE ~ NA_real_)) 
-#maximal by-subjects random effects structure does not converge; simplify by-subject random slopes
+#logistic mixed-effects model (boundary fit, but does not appear to distort estimates - similar results with pruned random effects structure)
 m <- glmer(matchChoice~(hfTrial+angleDiffFromMatchC)*versionC+(1+hfTrial+angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(all_data, listChoice==1& version  %in% c("exp3","exp4")),family=binomial,glmerControl(optimizer="bobyqa"))
-summary(m)
-m <- glmer(matchChoice~(hfTrial+angleDiffFromMatchC)*versionC+(1+hfTrial|subjCode)+(1|targetLabel),data=subset(all_data, listChoice==1& version  %in% c("exp3","exp4")),family=binomial,glmerControl(optimizer="bobyqa"))
 summary(m)
 ```
 
