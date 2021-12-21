@@ -2045,7 +2045,7 @@ The words given to each of the compass directions varied in character length (an
 ```{r, warning=FALSE, message=FALSE}
 m <- glmer(matchChoice~hfTrial+angleDiffFromMatchC+nearestLabel_length+(1+hfTrial+angleDiffFromMatchC+nearestLabel_length|subjCode)+(1|targetLabel),data=subset(all_data, version=="exp1" & listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
 summary(m)
-confint(m,method="Wald")[8:10,]
+confint(m,method="Wald")[12:15,]
 
 ## maximal model yields a singular fit
 ## model with simpler random-effects structure (random slopes for angleDiffFromMatchC and nearestLabel_length removed) yields similar results without singular fit
@@ -2784,12 +2784,73 @@ summary(m)
 
 ### All Exps
 
-To also check for any overall differences across experiment version, we also tested for an interaction with experiment across the entire dataset (Exps 1-4). There was no significant difference in the magnitude of the frequency effect across experiments.
+To check for any overall differences across experiment version, we also tested for an interaction with experiment across the entire dataset (Exps 1-4). There was no significant difference in the magnitude of the frequency effect across experiments.
 
 ```{r}
 m <- glmer(matchChoice~(hfTrial+angleDiffFromMatchC)*version+(1+hfTrial+angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(all_data, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
 summary(m)
 Anova(m, type="III")
+```
+
+## Interactions between Trial Number and Frequency {.tabset}
+
+To investigate the degree to which participants’ responses changed over the course of the experiment, we conducted an exploratory analysis testing the interaction between frequency (centered) and trial number (centered) in the same modeling framework as the main model reported in the manuscript, including an additional by-subject random slope for trial number (see tabs below for model result for each experiment/ collapsing across experiments). In general, there was some evidence that participants became somewhat less likely to choose the word for the nearest trained compass direction over the course of the Test Phase of the experiment (i.e., the “Treasure Hunt”), as indicated by the simple effect of trial number in the models. However, this general decrease in choosing the nearest compass direction did not differ between frequency conditions, i.e. there was no evidence for a change in the frequency effect across the Test Phase.
+
+```{r}
+#create centered trial number (centered within Test Phase; also create a scaled trial number)
+all_data <- all_data %>%
+  group_by(version,subjCode,trialType) %>%
+  mutate(trialNumberC=trialNumber-mean(trialNumber),
+         #scale centered trial number ([-0.5,0.5]) to make model estimation easier/ support model convergence
+         trialNumberSC=(trialNumber-mean(trialNumber))/max(trialNumber) 
+         )
+```
+
+### Exp 1
+
+```{r}
+## Exp 1
+m <- glmer(matchChoice~hfTrial*trialNumberSC+angleDiffFromMatchC+(1+hfTrial+trialNumberSC+angleDiffFromMatchC|subjCode)+(1|targetLabel),
+           data=subset(all_data, version=="exp1" & listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+```
+
+### Exp 2
+
+```{r}
+## Exp 2
+m <- glmer(matchChoice~hfTrial*trialNumberSC+angleDiffFromMatchC+(1+hfTrial+trialNumberSC+angleDiffFromMatchC|subjCode)+(1|targetLabel),
+           data=subset(all_data, version=="exp2" & listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+```
+
+### Exp 3
+
+```{r}
+## Exp 3
+#m <- glmer(matchChoice~hfTrial*trialNumberSC+angleDiffFromMatchC+(1+hfTrial+trialNumberSC+angleDiffFromMatchC|subjCode)+(1|targetLabel),data=subset(all_data, version=="exp3" & listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+#remove less theoretically interesting random slope (angle distance from nearest compass direction) to allow model to converge
+m <- glmer(matchChoice~hfTrial*trialNumberSC+angleDiffFromMatchC+(1+hfTrial+trialNumberSC|subjCode)+(1|targetLabel),
+           data=subset(all_data, version=="exp3" & listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+```
+
+### Exp 4
+
+```{r}
+## Exp 4
+m <- glmer(matchChoice~hfTrial*trialNumberSC+angleDiffFromMatchC+(1+hfTrial+trialNumberSC+angleDiffFromMatchC|subjCode)+(1|targetLabel),
+           data=subset(all_data, version=="exp4" & listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
+```
+
+### All Exps
+
+```{r}
+## all exps
+m <- glmer(matchChoice~hfTrial*trialNumberSC+angleDiffFromMatchC+(1+hfTrial+trialNumberSC+angleDiffFromMatchC|subjCode)+(1|targetLabel),
+           data=subset(all_data, listChoice==1),family=binomial,glmerControl(optimizer="bobyqa"))
+summary(m)
 ```
 
 # Session Info

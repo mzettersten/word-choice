@@ -147,6 +147,15 @@ summary(m)
 all_data <- all_data %>%
   ungroup() %>%
   mutate(optimal_score=(45-angleDiffFromMatch)*2,
+         base_score = case_when(
+           is.na(angleDiff) ~ NA_real_,
+           is.na(label_raw) ~ NA_real_,
+           is.na(leftLabel) ~ NA_real_,
+           label_raw == leftLabel ~ as.numeric(45-angleDiff),
+           is.na(rightLabel) ~ 0,
+           label_raw == rightLabel ~ as.numeric(angleDiff),
+           TRUE ~ 0
+         ),
          optimal_score_2000=(45-angleDiffFromMatch)*(1+(5000-2000)/5000),
          optimal_score_own_rt=(45-angleDiffFromMatch)*(1+(5000-rt)/5000)) %>%
   mutate(
