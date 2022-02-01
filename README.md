@@ -1,11 +1,11 @@
 # word-choice
 Data and Analysis scripts for the "Word Choice" experiment 
 
-Paper: Good-enough production: Selecting easier words instead of accurate ones
+Koranda, M., Zettersten, M., & McDonald, M. (accepted). Good-enough production: Selecting easier words instead of more accurate ones. *Psychological Science*.
 
 **Abstract**
 
-While many implicit decisions are the result of a trade-off, trade-offs in word use, such as whether a producer meant to convey a message more aligned with kitten despite saying a more accessible word like cat, are difficult to measure. To test the trade-off between message alignment and accessibility, we designed an artificial language where word meanings corresponded to angles on a compass. In a novel language communication game, participants trained on some words more than others (high- vs low-frequency), and then earned points by producing words, occasionally requiring an implicit decision between a high- vs low-frequency word. A trade-off was observed across four experiments, such that high-frequency words were produced even when less aligned with messages. Since high-frequency words are more accessible, these results suggest that implicit decisions between words are impacted by accessibility. Of all the times that people have said cat, many times they likely meant kitten.
+Dominant theories of language production suggest that word choice—lexical selection—is driven by alignment with the intended message: to talk about a young feline, we choose the most aligned word, kitten. Another factor that could shape lexical selection is word accessibility, or how easy it is to produce a given word (e.g., cat is more accessible than kitten). To test whether producers are also influenced by word accessibility, we designed an artificial lexicon with high- and low-frequency words with word meanings corresponding to compass directions. Participants  earned points by producing compass directions, often requiring an implicit decision between a high- vs low-frequency word. A trade-off was observed across four experiments, such that high-frequency words were produced even when less aligned with messages. These results suggest that implicit decisions between words are impacted by accessibility. Of all the times that people have produced cat, sometimes they likely meant kitten.
 
 ## Folders
 
@@ -19,7 +19,7 @@ The folder data_analysis contains the following documents
 
 ## Link to OSF project:
 
-https://osf.io/3svge/?view_only=7f98d3e153a1427f8eb60503113bb157
+https://osf.io/3svge
 
 ## Analysis Walkthrough
 
@@ -29,5 +29,5 @@ https://rpubs.com/zcm/good_enough_production
 
 ## Questions
 
-Feel free to contact me at **(removed for peer review)** if you have any comments or questions about the data or the analyses.
+Feel free to contact me at **martincz@princeton.edu** if you have any comments or questions about the data or the analyses.
 
