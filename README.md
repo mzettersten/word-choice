@@ -1,7 +1,7 @@
 # word-choice
 Data and Analysis scripts for the "Word Choice" experiment 
 
-Koranda, M., Zettersten, M., & McDonald, M. (accepted). Good-enough production: Selecting easier words instead of more accurate ones. *Psychological Science*.
+Koranda, M., Zettersten, M., & MacDonald, M. (in press). Good-enough production: Selecting easier words instead of more accurate ones. *Psychological Science*. Preprint: https://psyarxiv.com/q2h9d
 
 **Abstract**
 
@@ -9,7 +9,7 @@ Dominant theories of language production suggest that word choice—lexical sele
 
 ## Folders
 
-The folder data_analysis contains the following documents
+The repository contains the following documents
 
 - **raw_data**: raw data from Experiments 1-4
 - **processed_data**: processed data from Experiments 1-4 and the codebook for the resulting data
