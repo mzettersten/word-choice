@@ -53,7 +53,7 @@ This section defines a series of functions that are reused across the analyses. 
 subject_accuracy_by_frequency_by_block <- function(experiment_data) {
   subjAccFreq <- experiment_data %>%
   group_by(subjCode,block,freq) %>%
-  summarize(
+  dplyr::summarize(
     accuracy=mean(isRight,na.rm=T),
     all_rt = mean(rt,na.rm=T),
     correct_rt = mean(rt[isRight==1],na.rm=T)) %>%
@@ -65,10 +65,10 @@ subject_accuracy_by_frequency_by_block <- function(experiment_data) {
 summary_se_within_cis <- function(data,measurevar, betweenvars=NULL, withinvars=NULL,idvar=NULL, na.rm=FALSE, conf.interval=.95) {
   summarized_data <- summarySEwithin(data=data,measurevar=measurevar,withinvars=withinvars,idvar=idvar,na.rm=na.rm, conf.interval=conf.interval) %>%
     mutate(
-      lowerCI = !!as.name({{ measurevar }}) - ci,
-      upperCI = !!as.name({{ measurevar }}) + ci
+      lowerCI = get(measurevar) - ci,
+      upperCI = get(measurevar) + ci
     ) %>%
-    select(-se, -sd,-ci,-!!as.name(paste0({{ measurevar }},"_norm")))
+    select(-se, -sd,-ci,-paste0(as.name(measurevar),"_norm"))
 } 
 ```
 
@@ -270,7 +270,7 @@ subjDemographics <- all_data %>%
   select(version,subjCode,Gender,Age,NativeLang,SecondLangYN) %>%
   unique() %>%
   group_by(version) %>%
-  summarize(
+  dplyr::summarize(
     N=n(),
     gender_f=sum(Gender=="Female"),
     mean_age=round(mean(Age,na.rm=T),2),
@@ -331,7 +331,7 @@ Compute overview of participants' performance during the Training Phase in which
 subj_block_numbers <- all_data %>%
   filter(trialType=="pairLearn"|trialType=="name") %>%
   group_by(version,subjCode) %>%
-  summarize(
+  dplyr::summarize(
     num_pairlearn_blocks=max(pairLearnBlockNum,na.rm=T),
     num_name_blocks=max(nameBlockNum,na.rm=T),
   )
@@ -342,7 +342,7 @@ all_data <- all_data %>%
 #generate by-subject accuracy for each block (repeated training blocks are averaged together)
 subjAcc <- all_data %>%
   group_by(version,subjCode,trialType) %>%
-  summarize(
+  dplyr::summarize(
     accuracy=mean(isRight,na.rm=T),
     numTrials=sum(!is.na(subjCode)),
     rt = mean(rt[isRight==1],na.rm=T)) %>%
@@ -352,7 +352,7 @@ subjAcc <- all_data %>%
 overallPairAcc <- subjAcc %>%
   group_by(version) %>%
   filter(trialType=="pairLearn") %>%
-  summarize(
+  dplyr::summarize(
     acc=mean(accuracy,na.rm=T),
     sd = sd(accuracy),
     num_trials_avg = mean(numTrials),
@@ -369,7 +369,7 @@ Also compute training accuracy and recall by block to see the general trajectory
 subj_pair_accuracy_by_block <- all_data %>%
   filter(trialType=="pairLearn"&!is.na(pairLearnBlockNum)) %>%
   group_by(version,subjCode,pairLearnBlockNum) %>%
-  summarize(
+  dplyr::summarize(
     accuracy=mean(isRight,na.rm=T),
     numTrials=sum(!is.na(subjCode))) %>%
   ungroup()
@@ -378,7 +378,7 @@ subj_pair_accuracy_by_block <- all_data %>%
 subj_training_recall_by_block <- all_data %>%
   filter(trialType=="name"&!is.na(nameBlockNum)) %>%
   group_by(version,subjCode,nameBlockNum) %>%
-  summarize(
+  dplyr::summarize(
     accuracy=mean(isRight,na.rm=T),
     numTrials=sum(!is.na(subjCode))) %>%
   ungroup()
@@ -647,7 +647,7 @@ ggsave(here::here("plots","exp4_learningAnglesManCheck.jpg"), width=9, height=6)
 subjAcc <- all_data %>%
   filter(version=="exp4") %>%
   group_by(subjCode,trialType) %>%
-  summarize(
+  dplyr::summarize(
     accuracy=mean(isRight,na.rm=T),
     numTrials=sum(!is.na(subjCode)),
     rt = mean(rt[isRight==1],na.rm=T)) %>%
@@ -656,7 +656,7 @@ subjAcc <- all_data %>%
 #accuracy on angle memory task
 overallNonVLearn <- subjAcc %>%
   filter(trialType=="nonvLearn") %>%
-  summarize(acc=mean(accuracy,na.rm=T),
+  dplyr::summarize(acc=mean(accuracy,na.rm=T),
             sd = sd(accuracy),
             rt=mean(rt))
 
@@ -2022,7 +2022,7 @@ final_accuracy <- all_data %>%
   filter(version=="exp1") %>%
   filter(trialType=="finalName") %>%
   group_by(subjCode,trialType) %>%
-  summarize(N=n(),accuracy=mean(isRight)) %>%
+  dplyr::summarize(N=n(),accuracy=mean(isRight)) %>%
   ungroup()
 
 #select only participants with perfect recall on the final test block
@@ -2209,7 +2209,7 @@ final_accuracy <- all_data %>%
   filter(version=="exp2") %>%
   filter(trialType=="finalName") %>%
   group_by(subjCode,trialType) %>%
-  summarize(N=n(),accuracy=mean(isRight)) %>%
+  dplyr::summarize(N=n(),accuracy=mean(isRight)) %>%
   ungroup()
 
 #select only participants with perfect recall on the final test block
@@ -2395,7 +2395,7 @@ final_accuracy <- all_data %>%
   filter(version=="exp3") %>%
   filter(trialType=="finalName") %>%
   group_by(subjCode,trialType) %>%
-  summarize(N=n(),accuracy=mean(isRight)) %>%
+  dplyr::summarize(N=n(),accuracy=mean(isRight)) %>%
   ungroup()
 
 #select only participants with perfect recall on the final test block
@@ -2581,7 +2581,7 @@ final_accuracy <- all_data %>%
   filter(version=="exp4") %>%
   filter(trialType=="finalName") %>%
   group_by(subjCode,trialType) %>%
-  summarize(N=n(),accuracy=mean(isRight)) %>%
+  dplyr::summarize(N=n(),accuracy=mean(isRight)) %>%
   ungroup()
 
 #select only participants with perfect recall on the final test block
@@ -2603,7 +2603,7 @@ subj_acc_name_block <- all_data %>%
   filter(version=="exp4") %>%
   filter(trialType=="name"&block=="init"&!(is.na(nameBlockNum))) %>%
   group_by(subjCode,nameBlockNum) %>%
-  summarize(N=n(),accuracy=mean(isRight)) %>%
+  dplyr::summarize(N=n(),accuracy=mean(isRight)) %>%
   ungroup()
 
 #select only participants with perfect recall on the final Word Learning block
@@ -2722,6 +2722,7 @@ ggsave(here::here("plots","exp34_frequencyEffect.jpg"), width=14, height=8)
 
 plot_grid(p_freq1,p_freq2,p_freq3,p_freq4, labels=c("A","B","C","D"),ncol=2,label_size=24)
 ggsave(here::here("plots","exp_all_frequencyEffect.jpg"), width=18, height=14,dpi=300)
+ggsave(here::here("plots","exp_all_frequencyEffect.pdf"), width=18, height=14,dpi=600)
 ```
 
 ## Interactions between Experiment {.tabset}
