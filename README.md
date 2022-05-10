@@ -1,5 +1,5 @@
 # word-choice
-Data and Analysis scripts for the "Word Choice" experiment 
+Data and analysis scripts for the "Word Choice" experiment 
 
 Koranda, M., Zettersten, M., & MacDonald, M. (in press). Good-enough production: Selecting easier words instead of more accurate ones. *Psychological Science*. Preprint: https://psyarxiv.com/q2h9d
 
@@ -17,7 +17,7 @@ The repository contains the following documents
 - **plots**: figures generated in the analysis pipeline
 - **experiment_scripts:** Experimental scripts used to present the experiment (python-/ psychopy-based)
 
-## Link to OSF project:
+## Link to OSF project
 
 https://osf.io/3svge
 
