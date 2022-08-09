@@ -1,7 +1,7 @@
 # word-choice
 Data and analysis scripts for the "Word Choice" experiment 
 
-Koranda, M., Zettersten, M., & MacDonald, M. (in press). Good-enough production: Selecting easier words instead of more accurate ones. *Psychological Science*. Preprint: https://psyarxiv.com/q2h9d
+Koranda, M., Zettersten, M., & MacDonald, M. (in press). Good-enough production: Selecting easier words instead of more accurate ones. *Psychological Science*. https://doi.org/10.1177/09567976221089603. Preprint: https://psyarxiv.com/q2h9d
 
 **Abstract**
 
